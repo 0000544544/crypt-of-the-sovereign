@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crypt of the Sovereign</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/png" href="assets/sprites/icon.png" />
+</head>
+<body>
+  <div id="gameContainer">
+    <!-- CANEVAS DE JEU PIXEL ART 1280x720 -->
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+    <!-- ATH EN JEU (HUD) -->
+    <div id="gameHud" style="display: none;">
+      <!-- Barres de statut du joueur -->
+      <div class="hud-player-stats">
+        <div class="stat-bar-container hp">
+          <div class="stat-bar-label">PV</div>
+          <div class="stat-bar-track"><div id="hpBarFill" class="stat-bar-fill"></div></div>
+        </div>
+        <div class="stat-bar-container mana">
+          <div class="stat-bar-label">MANA</div>
+          <div class="stat-bar-track"><div id="manaBarFill" class="stat-bar-fill"></div></div>
+        </div>
+        <div class="stat-bar-container stamina">
+          <div class="stat-bar-label">ENDU</div>
+          <div class="stat-bar-track"><div id="staminaBarFill" class="stat-bar-fill"></div></div>
+        </div>
+      </div>
+
+      <!-- Informations d'étage et devises -->
+      <div class="hud-center-info">
+        <div id="hudFloor" class="hud-badge-floor">Étage 1</div>
+        <div class="hud-currencies">
+          <div class="currency-item gold">
+            <img src="assets/sprites/item_coin.png" class="currency-icon" />
+            <span id="hudGold">0</span>
+          </div>
+          <div class="currency-item souls">
+            <img src="assets/sprites/item_soul_gem.png" class="currency-icon" />
+            <span id="hudSouls">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Raccourcis Potions & Minimap -->
+      <div class="hud-right-panel">
+        <div class="hud-potions">
+          <div class="potion-slot" title="Potion de Soin [1]">
+            <img src="assets/sprites/item_potion_health.png" />
+            <span id="hudPotionHp" class="potion-count">x2</span>
+            <span class="key-badge">1</span>
+          </div>
+          <div class="potion-slot" title="Élixir de Mana [2]">
+            <img src="assets/sprites/item_potion_mana.png" />
+            <span id="hudPotionMana" class="potion-count">x1</span>
+            <span class="key-badge">2</span>
+          </div>
+          <div class="potion-slot inv-toggle-btn" id="btnToggleInventoryHud" title="Inventaire [I / Tab]">
+            <img src="assets/sprites/item_sword.png" />
+            <span class="key-badge">I</span>
+          </div>
+        </div>
+        <canvas id="minimapCanvas" width="120" height="120"></canvas>
+      </div>
+
+      <!-- Barre de vie du Boss (affichée lors des combats contre le Souverain) -->
+      <div id="bossHud" style="display: none;">
+        <div id="bossName" class="boss-title">LE SOUVERAIN DÉCHU</div>
+        <div class="boss-bar-track">
+          <div id="bossBarFill" class="boss-bar-fill"></div>
+        </div>
+      </div>
+
+      <!-- Prompt contextuel d'interaction -->
+      <div id="interactionPrompt" style="display: none;">[E] Interagir</div>
+    </div>
+
+    <!-- ÉCRAN TITRE -->
+    <div id="screenTitle" class="overlay-screen">
+      <div class="title-box">
+        <img src="assets/sprites/icon.png" class="title-logo" />
+        <h1 class="main-game-title">CRYPT OF THE SOVEREIGN</h1>
+        <p class="game-subtitle">ACTION-RPG DUNGEON CRAWLER EN PIXEL ART</p>
+        <div class="menu-buttons">
+          <button id="btnStartGame" class="pixel-btn primary">NOUVELLE EXPÉDITION</button>
+          <button id="btnSanctuary" class="pixel-btn secondary">SANCTUAIRE DES ÂMES</button>
+          <button id="btnOptionsTitle" class="pixel-btn">OPTIONS & COMMANDES</button>
+          <button id="btnQuitGame" class="pixel-btn danger">QUITTER LE JEU</button>
+        </div>
+        <div class="version-tag">Version 1.0.0 Commerciale - Steam / Itch.io Ready</div>
+      </div>
+    </div>
+
+    <!-- SÉLECTION DE CLASSE -->
+    <div id="screenSelectClass" class="overlay-screen" style="display: none;">
+      <h2 class="screen-heading">CHOISISSEZ VOTRE HÉROS</h2>
+      <div class="classes-container">
+        <!-- CHEVALIER -->
+        <div class="class-card selected" data-class-id="knight">
+          <div class="class-avatar-box">
+            <img src="assets/sprites/hero_knight.png" class="class-avatar" />
+          </div>
+          <div class="class-name" style="color: #00f0ff;">Chevalier Mystique</div>
+          <div class="class-role">Tank / Corps-à-Corps</div>
+          <p class="class-desc">Guerrier blindé capable d'encaisser de lourds assauts et de repousser les hordes au bouclier.</p>
+          <div class="class-abilities">
+            <div class="ability-row"><strong>Attaque :</strong> Entaille Sacrée (Arc de cercle)</div>
+            <div class="ability-row"><strong>Spécial :</strong> Bouclier Sanctuaire (+45 Bouclier)</div>
+            <div class="ability-row"><strong>Esquive :</strong> Charge de Fer Invincible</div>
+          </div>
+        </div>
+
+        <!-- ARCHIMAGE -->
+        <div class="class-card" data-class-id="mage">
+          <div class="class-avatar-box">
+            <img src="assets/sprites/hero_mage.png" class="class-avatar" />
+          </div>
+          <div class="class-name" style="color: #7209b7;">Archimage Arcanique</div>
+          <div class="class-role">Magie / Tir à distance</div>
+          <p class="class-desc">Érudit du Néant anéantissant les salles entières à distance avec des orbes et une nova de givre.</p>
+          <div class="class-abilities">
+            <div class="ability-row"><strong>Attaque :</strong> Orbe Arcanique Perforant</div>
+            <div class="ability-row"><strong>Spécial :</strong> Nova de Givre (Gel 2.5s)</div>
+            <div class="ability-row"><strong>Esquive :</strong> Téléportation Blink</div>
+          </div>
+        </div>
+
+        <!-- ASSASSIN -->
+        <div class="class-card" data-class-id="rogue">
+          <div class="class-avatar-box">
+            <img src="assets/sprites/hero_rogue.png" class="class-avatar" />
+          </div>
+          <div class="class-name" style="color: #06d6a0;">Assassin d'Ombre</div>
+          <div class="class-role">Furtivité / Coups Critiques</div>
+          <p class="class-desc">Prédateur véloce maniant les dagues empoisonnées et capable de se dissimuler dans les ténèbres.</p>
+          <div class="class-abilities">
+            <div class="ability-row"><strong>Attaque :</strong> Double Dague Empoisonnée</div>
+            <div class="ability-row"><strong>Spécial :</strong> Voile d'Ombre (Crit 300%)</div>
+            <div class="ability-row"><strong>Esquive :</strong> Foulée Spectrale Rapide</div>
+          </div>
+        </div>
+      </div>
+      <div class="class-action-buttons">
+        <button id="btnConfirmClass" class="pixel-btn primary large">ENTRER DANS LA CRYPTE</button>
+        <button id="btnBackToTitle" class="pixel-btn">RETOUR</button>
+      </div>
+    </div>
+
+    <!-- SANCTUAIRE / MÉTA-PROGRESSION -->
+    <div id="screenSanctuary" class="overlay-screen" style="display: none;">
+      <h2 class="screen-heading">LE SANCTUAIRE DU SOUVERAIN</h2>
+      <p class="screen-subtext">Dépensez vos Gemmes d'Âme récoltées pour bénir définitivement vos futures expéditions.</p>
+      <div class="sanctuary-souls-badge">
+        <img src="assets/sprites/item_soul_gem.png" />
+        <span id="sanctuarySoulsCount">0</span> Âmes Disponibles
+      </div>
+      <div id="sanctuaryUpgradesList" class="sanctuary-list"></div>
+      <div class="sanctuary-footer">
+        <button id="btnBackFromSanctuary" class="pixel-btn primary">RETOUR AU REPOS</button>
+      </div>
+    </div>
+
+    <!-- MODALE INVENTAIRE -->
+    <div id="screenInventory" class="overlay-screen modal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>INVENTAIRE & ÉQUIPEMENT</h3>
+          <button id="btnCloseInventory" class="btn-close-modal">✕</button>
+        </div>
+        <div class="inventory-layout">
+          <!-- Équipement actif -->
+          <div class="equipment-column">
+            <h4>ÉQUIPEMENT ACTIF</h4>
+            <div class="equip-slots">
+              <div class="equip-slot-wrap">
+                <span class="slot-title">ARME</span>
+                <div id="slotEquipWeapon" class="inv-slot equip-slot"></div>
+              </div>
+              <div class="equip-slot-wrap">
+                <span class="slot-title">ARMURE</span>
+                <div id="slotEquipArmor" class="inv-slot equip-slot"></div>
+              </div>
+              <div class="equip-slot-wrap">
+                <span class="slot-title">ANNEAU</span>
+                <div id="slotEquipRing" class="inv-slot equip-slot"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sac d'objets -->
+          <div class="bag-column">
+            <h4>SAC À DOS (16 EMPLACEMENTS)</h4>
+            <div id="inventoryBagGrid" class="bag-grid"></div>
+            <p class="bag-hint">Cliquez sur un objet du sac pour l'équiper immédiatement.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOUTIQUE DU MARCHAND -->
+    <div id="screenShop" class="overlay-screen modal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>ÉCHOPE DE MARIUS LE CONTREBANDIER</h3>
+          <button id="btnCloseShop" class="btn-close-modal">✕</button>
+        </div>
+        <div class="shop-currency-banner">
+          Votre Bourse : <span id="shopGoldCurrent" style="color: #ffb703; font-weight: bold;">0</span> Pièces d'Or
+        </div>
+        <div id="shopItemsContainer" class="shop-items-grid"></div>
+      </div>
+    </div>
+
+    <!-- MENU PAUSE -->
+    <div id="screenPause" class="overlay-screen modal" style="display: none;">
+      <div class="modal-card small">
+        <h3>PARTIE EN PAUSE</h3>
+        <div class="pause-menu-buttons">
+          <button id="btnResumeGame" class="pixel-btn primary">REPRENDRE</button>
+          <button id="btnOptionsFromPause" class="pixel-btn">OPTIONS</button>
+          <button id="btnAbandonRun" class="pixel-btn danger">ABANDONNER L'EXPÉDITION</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ÉCRAN GAME OVER / VICTOIRE -->
+    <div id="screenGameOver" class="overlay-screen" style="display: none;">
+      <div class="title-box">
+        <h2 id="gameOverTitle" class="main-game-title">VOUS AVEZ SUCCOMBÉ</h2>
+        <p id="gameOverDesc" class="game-subtitle">Votre corps s'effondre dans la poussière millénaire...</p>
+        <div class="recap-stats-grid">
+          <div class="recap-item"><span>Monstres Terrassés :</span> <strong id="recapKills">0</strong></div>
+          <div class="recap-item"><span>Titans Vaincus :</span> <strong id="recapBosses">0</strong></div>
+          <div class="recap-item"><span>Étage Atteint :</span> <strong id="recapFloor">1</strong></div>
+          <div class="recap-item"><span>Âmes Récoltées :</span> <strong id="recapSouls" style="color: #b5179e;">+0</strong></div>
+        </div>
+        <button id="btnReturnToSanctuary" class="pixel-btn primary large">RETOURNER AU SANCTUAIRE</button>
+      </div>
+    </div>
+
+    <!-- OPTIONS & COMMANDES -->
+    <div id="screenOptions" class="overlay-screen modal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>OPTIONS & CONFIGURATION STEAM</h3>
+          <button id="btnCloseOptions" class="btn-close-modal">✕</button>
+        </div>
+        <div class="options-body">
+          <div class="option-row">
+            <label>Volume Principal :</label>
+            <input type="range" id="sliderMasterVol" min="0" max="1" step="0.05" value="0.8" />
+          </div>
+          <div class="option-row">
+            <label>Volume Musique (Dungeon-Synth) :</label>
+            <input type="range" id="sliderMusicVol" min="0" max="1" step="0.05" value="0.5" />
+          </div>
+          <div class="option-row">
+            <label>Volume Effets Sonores (SFX) :</label>
+            <input type="range" id="sliderSfxVol" min="0" max="1" step="0.05" value="0.8" />
+          </div>
+          <div class="option-row">
+            <label>Affichage :</label>
+            <button id="btnToggleFullscreen" class="pixel-btn">BASCULER PLEIN ÉCRAN (F11)</button>
+          </div>
+          <hr class="options-separator" />
+          <h4>COMMANDES HYBRIDES CLAVIER / MANETTE</h4>
+          <div class="controls-guide-grid">
+            <div><strong>Déplacement :</strong> ZQSD / Flèches ou Stick Gauche</div>
+            <div><strong>Attaque :</strong> Clic Gauche / J ou Bouton X / RT</div>
+            <div><strong>Compétence :</strong> Clic Droit / K ou Bouton B / RB</div>
+            <div><strong>Roulade / Esquive :</strong> Espace / Shift ou Bouton A</div>
+            <div><strong>Interagir :</strong> E / Entrée ou Bouton Y</div>
+            <div><strong>Inventaire :</strong> I / Tab ou Bouton Select</div>
+            <div><strong>Potions :</strong> 1 (Soin) / 2 (Mana) ou D-Pad</div>
+            <div><strong>Pause :</strong> Échap ou Bouton Start</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPTS DU MOTEUR MODULAIRE -->
+  <script src="js/sound.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/classes.js"></script>
+  <script src="js/items.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/dungeon.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

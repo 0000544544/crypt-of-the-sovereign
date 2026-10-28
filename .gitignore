@@ -1,0 +1,17 @@
+# Dépendances Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Fichiers de compilation Electron & Binaires
+dist/
+output/
+*.exe
+*.msi
+
+# Fichiers Système & OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp

@@ -1,0 +1,52 @@
+{
+  "name": "crypt-of-the-sovereign",
+  "version": "1.0.0",
+  "description": "Crypt of the Sovereign - Action-RPG Dungeon Crawler commercialisable en Pixel Art",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "serve": "node server.js",
+    "test": "node test-game.js",
+    "fetch-assets": "node fetch-assets.js",
+    "dist": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis"
+  },
+  "keywords": [
+    "action-rpg",
+    "dungeon-crawler",
+    "pixel-art",
+    "roguelite",
+    "electron",
+    "steam",
+    "itch-io"
+  ],
+  "author": "Indie Game Studio",
+  "license": "MIT",
+  "build": {
+    "appId": "com.sovereign.crypt",
+    "productName": "Crypt of the Sovereign",
+    "copyright": "Copyright © 2026 Sovereign Studio",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "assets/sprites/icon.png"
+    },
+    "files": [
+      "index.html",
+      "style.css",
+      "main.js",
+      "server.js",
+      "js/**/*",
+      "assets/**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}
