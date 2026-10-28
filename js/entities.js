@@ -1,8 +1,144 @@
 /**
  * CRYPT OF THE SOVEREIGN - ENTITIES & COMBAT SYSTEM
  * Joueur, Bestiaire IA (Swarmer, Archer, Nécromancien, Tank, Boss Souverain Déchu),
- * Projectiles magiques, Objets au sol et Textes flottants de combat.
+ * Projectiles magiques, Objets au sol, Particules dynamiques et Textes flottants de combat.
  */
+
+class Particle {
+  constructor(x, y, vx, vy, color, size, life, shape = 'square', gravity = 0) {
+    this.x = x;
+    this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.color = color;
+    this.size = size;
+    this.life = life;
+    this.maxLife = life;
+    this.shape = shape; // 'square', 'circle', 'spark'
+    this.gravity = gravity;
+  }
+
+  update(dt) {
+    this.life -= dt;
+    this.vy += this.gravity * dt;
+    this.x += this.vx * dt * 60;
+    this.y += this.vy * dt * 60;
+    this.vx *= 0.94;
+    this.vy *= 0.94;
+  }
+
+  draw(ctx) {
+    if (this.life <= 0) return;
+    const alpha = Math.max(0, this.life / this.maxLife);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.color;
+    if (this.shape === 'circle') {
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, Math.max(0.5, this.size * alpha), 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const s = this.size * (0.35 + 0.65 * alpha);
+      ctx.fillRect(this.x - s / 2, this.y - s / 2, s, s);
+    }
+    ctx.restore();
+  }
+}
+
+class ParticleManager {
+  constructor() {
+    this.particles = [];
+  }
+
+  addHitSpark(x, y, color = '#f59e0b', count = 8) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 2.8 + 1.2;
+      this.particles.push(new Particle(
+        x, y,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        color,
+        Math.random() * 3 + 2,
+        0.25 + Math.random() * 0.2,
+        'spark'
+      ));
+    }
+  }
+
+  addDeathBurst(x, y, color = '#ef4444', count = 40) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 4.2 + 1.5;
+      const c = (Math.random() < 0.25) ? '#ffffff' : color;
+      this.particles.push(new Particle(
+        x, y,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        c,
+        Math.random() * 4 + 2,
+        0.35 + Math.random() * 0.35,
+        'square',
+        40
+      ));
+    }
+  }
+
+  addTorchEmber(x, y) {
+    this.particles.push(new Particle(
+      x + (Math.random() * 10 - 5),
+      y - 4,
+      (Math.random() - 0.5) * 0.4,
+      -(Math.random() * 0.8 + 0.5),
+      Math.random() < 0.5 ? '#ffb703' : '#fb8500',
+      Math.random() * 2.5 + 1.5,
+      0.6 + Math.random() * 0.35,
+      'circle'
+    ));
+  }
+
+  addProjectileTrail(x, y, color) {
+    this.particles.push(new Particle(
+      x + (Math.random() * 4 - 2),
+      y + (Math.random() * 4 - 2),
+      (Math.random() - 0.5) * 0.25,
+      (Math.random() - 0.5) * 0.25,
+      color,
+      Math.random() * 2.8 + 1.8,
+      0.2,
+      'circle'
+    ));
+  }
+
+  addPoisonBubble(x, y) {
+    this.particles.push(new Particle(
+      x + (Math.random() * 16 - 8),
+      y + (Math.random() * 10 - 5),
+      (Math.random() - 0.5) * 0.3,
+      -(Math.random() * 0.6 + 0.4),
+      '#10b981',
+      Math.random() * 3 + 1.5,
+      0.45,
+      'circle'
+    ));
+  }
+
+  update(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.update(dt);
+      if (p.life <= 0) {
+        this.particles.splice(i, 1);
+      }
+    }
+  }
+
+  draw(ctx) {
+    for (let i = 0; i < this.particles.length; i++) {
+      this.particles[i].draw(ctx);
+    }
+  }
+}
 
 class DamageNumber {
   constructor(x, y, text, color = '#f8fafc', isCrit = false) {
@@ -189,6 +325,11 @@ class Player {
     this.hitCooldown = 0;
     this.swingAnim = 0;
     this.swingAngle = 0;
+
+    // Juice & Animations
+    this.afterimages = [];
+    this.afterimageTimer = 0;
+    this.isMoving = false;
   }
 
   applyEquipmentStats(equipmentStats) {
@@ -236,6 +377,26 @@ class Player {
       this.invisibleTimer -= dt;
     }
 
+    // Gestion des images rémanentes (afterimages)
+    for (let i = this.afterimages.length - 1; i >= 0; i--) {
+      const ai = this.afterimages[i];
+      ai.life -= dt;
+      if (ai.life <= 0) this.afterimages.splice(i, 1);
+    }
+    if (this.isRolling || this.invisibleTimer > 0) {
+      this.afterimageTimer -= dt;
+      if (this.afterimageTimer <= 0) {
+        this.afterimages.push({
+          x: this.x,
+          y: this.y,
+          facingLeft: this.facingLeft,
+          life: 0.22,
+          maxLife: 0.22
+        });
+        this.afterimageTimer = 0.04;
+      }
+    }
+
     // 2. Gestion de la Roulade / Esquive
     if (this.isRolling) {
       this.rollTimer -= dt;
@@ -281,11 +442,14 @@ class Player {
         }
         this.x = finalX;
         this.y = finalY;
+        this.isRolling = false;
+        this.hitCooldown = 0.25;
         soundEngine.playMagicCast();
         this.activeShockwave = {
           x: this.x,
           y: this.y,
-          radius: 75,
+          radius: 80,
+          color: '#4cc9f0',
           damage: 30 * (this.meta.damageMultiplier || 1),
           freezeDuration: 1.0,
           hitSet: new Set()
@@ -299,6 +463,7 @@ class Player {
     }
 
     // 3. Déplacement standard
+    this.isMoving = (input.moveX !== 0 || input.moveY !== 0);
     const currentSpeed = (this.effectiveSpeed || this.speed) * (this.invisibleTimer > 0 ? 1.5 : 1.0);
     const mx = input.moveX * currentSpeed * 60 * dt;
     const my = input.moveY * currentSpeed * 60 * dt;
@@ -398,6 +563,7 @@ class Player {
         x: this.x,
         y: this.y,
         radius: this.classDef.specialSkill.radius,
+        color: '#00f0ff',
         damage: this.classDef.specialSkill.damage * (this.meta.damageMultiplier || 1),
         freezeDuration: 1.5, // Étourdissement 1.5s
         hitSet: new Set()
@@ -410,6 +576,7 @@ class Player {
         x: this.x,
         y: this.y,
         radius: this.classDef.specialSkill.radius,
+        color: '#7209b7',
         damage: this.classDef.specialSkill.damage * (this.meta.damageMultiplier || 1),
         freezeDuration: this.classDef.specialSkill.freezeDuration,
         hitSet: new Set()
@@ -474,11 +641,31 @@ class Player {
   draw(ctx, spriteSheet) {
     ctx.save();
 
+    const spriteName = this.classDef.sprite.replace('assets/sprites/', '');
+    const sprite = spriteSheet[spriteName];
+
+    // Traînée d'images rémanentes (afterimages) pendant la roulade ou l'invisibilité
+    for (const ai of this.afterimages) {
+      const alpha = Math.max(0, ai.life / ai.maxLife);
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.4;
+      ctx.translate(ai.x, ai.y);
+      if (ai.facingLeft) ctx.scale(-1, 1);
+      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+        ctx.drawImage(sprite, -16, -16, 32, 32);
+      }
+      ctx.restore();
+    }
+
     // Rendu ombre portée
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.beginPath();
     ctx.ellipse(this.x, this.y + 12, 10, 4, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Rebond de marche (bobbing) et inclinaison dynamique
+    const bob = (this.isMoving && !this.isRolling) ? Math.abs(Math.sin(Date.now() * 0.015)) * 2.5 : 0;
+    const tilt = (this.isMoving && !this.isRolling) ? (this.facingLeft ? -0.06 : 0.06) : 0;
 
     // Clignotement de dégât ou invisibilité
     if (this.hitCooldown > 0) {
@@ -488,34 +675,40 @@ class Player {
       ctx.globalAlpha = 0.45;
     }
 
-    // Rendu du sprite
-    const spriteName = this.classDef.sprite.replace('assets/sprites/', '');
-    const sprite = spriteSheet[spriteName];
-
-    ctx.translate(this.x, this.y);
+    ctx.translate(this.x, this.y - bob);
     if (this.facingLeft) {
       ctx.scale(-1, 1);
     }
+    ctx.rotate(tilt);
 
     if (sprite && sprite.complete && sprite.naturalWidth > 0) {
       ctx.drawImage(sprite, -16, -16, 32, 32);
     } else {
-      // Fallback
       ctx.fillStyle = this.classDef.color;
       ctx.fillRect(-12, -12, 24, 24);
     }
 
     ctx.restore();
 
-    // Arc d'attaque physique
+    // Véritable arc d'attaque dégradé avec lueur
     if (this.swingAnim > 0) {
       ctx.save();
-      ctx.strokeStyle = this.classDef.color;
-      ctx.lineWidth = 3;
-      ctx.shadowBlur = 8;
+      const arcRadius = 38;
+      const grad = ctx.createLinearGradient(
+        this.x + Math.cos(this.swingAngle - 0.7) * arcRadius,
+        this.y + Math.sin(this.swingAngle - 0.7) * arcRadius,
+        this.x + Math.cos(this.swingAngle + 0.7) * arcRadius,
+        this.y + Math.sin(this.swingAngle + 0.7) * arcRadius
+      );
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
+      grad.addColorStop(0.5, this.classDef.color);
+      grad.addColorStop(1, '#ffffff');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 4;
+      ctx.shadowBlur = 12;
       ctx.shadowColor = this.classDef.color;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, 36, this.swingAngle - 0.6, this.swingAngle + 0.6);
+      ctx.arc(this.x, this.y, arcRadius, this.swingAngle - 0.75, this.swingAngle + 0.75);
       ctx.stroke();
       ctx.restore();
     }
@@ -554,6 +747,7 @@ class Enemy {
     this.poisonTimer = 0;
     this.poisonDps = 0;
     this.facingLeft = false;
+    this.isMoving = false;
 
     // État spécifique du Boss
     if (this.isBoss) {
@@ -657,11 +851,18 @@ class Enemy {
     const angle = Math.atan2(player.y - this.y, player.x - this.x);
 
     this.facingLeft = (player.x < this.x);
+    this.isMoving = false;
+
+    // Calcul de visibilité par rapport au brouillard de guerre du joueur
+    const etx = Math.floor(this.x / TILE_SIZE);
+    const ety = Math.floor(this.y / TILE_SIZE);
+    const isVisibleToPlayer = (dungeon.visible[ety]?.[etx] === 1);
 
     // IA selon le type
     if (this.type === 'swarmer') {
       // Fonce directement au corps-à-corps
       if (dist < 400) {
+        this.isMoving = true;
         const mx = Math.cos(angle) * this.speed * 60 * dt;
         const my = Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
@@ -675,20 +876,22 @@ class Enemy {
       // Garde une distance d'environ 180px et tire
       if (dist < 140) {
         // Recule
+        this.isMoving = true;
         const mx = -Math.cos(angle) * this.speed * 60 * dt;
         const my = -Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       } else if (dist > 220 && dist < 420) {
         // S'approche
+        this.isMoving = true;
         const mx = Math.cos(angle) * this.speed * 60 * dt;
         const my = Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       }
 
-      // Tir d'une flèche
-      if (this.shootCooldown <= 0 && dist < 380) {
+      // Tir d'une flèche (uniquement si visible par le joueur et à portée < 280)
+      if (this.shootCooldown <= 0 && isVisibleToPlayer && dist < 280) {
         this.shootCooldown = 1.8;
         soundEngine.playHit();
         projectiles.push(new Projectile({
@@ -706,20 +909,22 @@ class Enemy {
       // Déplacement d'approche et recul tactique
       if (dist < 160) {
         // Recule
+        this.isMoving = true;
         const mx = -Math.cos(angle) * this.speed * 60 * dt;
         const my = -Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       } else if (dist > 260 && dist < 420) {
         // S'approche
+        this.isMoving = true;
         const mx = Math.cos(angle) * this.speed * 60 * dt;
         const my = Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       }
 
-      // Tire des crânes d'ombre téléguidés
-      if (this.shootCooldown <= 0 && dist < 400) {
+      // Tire des crânes d'ombre téléguidés (uniquement si visible par le joueur et à portée < 280)
+      if (this.shootCooldown <= 0 && isVisibleToPlayer && dist < 280) {
         this.shootCooldown = 2.4;
         soundEngine.playMagicCast();
         projectiles.push(new Projectile({
@@ -737,6 +942,7 @@ class Enemy {
     } else if (this.type === 'tank') {
       // Avance inexorablement et frappe lourdement
       if (dist < 420) {
+        this.isMoving = true;
         const mx = Math.cos(angle) * this.speed * 60 * dt;
         const my = Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
@@ -755,6 +961,7 @@ class Enemy {
         damageNumbers.push(new DamageNumber(this.x, this.y - 30, 'ENRAGÉ : PHRASE FINALE !', '#ff0033', true));
       }
 
+      this.isMoving = true;
       const mx = Math.cos(angle) * this.speed * 60 * dt;
       const my = Math.sin(angle) * this.speed * 60 * dt;
       if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
@@ -765,8 +972,8 @@ class Enemy {
         player.takeDamage(this.damage, soundEngine, damageNumbers, this.name);
       }
 
-      // Attaques du Boss
-      if (this.shootCooldown <= 0) {
+      // Attaques du Boss (uniquement si visible par le joueur et à portée < 280)
+      if (this.shootCooldown <= 0 && isVisibleToPlayer && dist < 280) {
         this.shootCooldown = this.bossPhase === 2 ? 1.5 : 2.2;
         this.attackCycle = (this.attackCycle + 1) % 2;
 
@@ -833,6 +1040,10 @@ class Enemy {
     ctx.ellipse(this.x, this.y + this.radius, this.radius * 0.8, 5, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    // Rebond de marche (bobbing) et inclinaison dynamique
+    const bob = (this.isMoving && this.freezeTimer <= 0) ? Math.abs(Math.sin(Date.now() * 0.015 + this.x)) * 2 : 0;
+    const tilt = (this.isMoving && this.freezeTimer <= 0) ? (this.facingLeft ? -0.05 : 0.05) : 0;
+
     if (this.hitCooldown > 0) {
       ctx.filter = 'brightness(2.5)';
     }
@@ -841,13 +1052,14 @@ class Enemy {
       ctx.filter = 'hue-rotate(180deg) brightness(1.2)';
     }
 
-    ctx.translate(this.x, this.y);
+    ctx.translate(this.x, this.y - bob);
     if (this.facingLeft) {
       ctx.scale(-1, 1);
     }
+    ctx.rotate(tilt);
 
     const sprite = spriteSheet[this.spriteName];
-    const size = this.isBoss ? 48 : 32;
+    const size = this.isBoss ? 56 : 32;
 
     if (sprite && sprite.complete && sprite.naturalWidth > 0) {
       ctx.drawImage(sprite, -size / 2, -size / 2, size, size);
@@ -873,6 +1085,8 @@ class Enemy {
   }
 }
 
+window.Particle = Particle;
+window.ParticleManager = ParticleManager;
 window.DamageNumber = DamageNumber;
 window.Projectile = Projectile;
 window.DropItem = DropItem;

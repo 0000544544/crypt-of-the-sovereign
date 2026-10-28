@@ -47,6 +47,7 @@ class DungeonFloor {
     this.height = height;
 
     this.grid = Array.from({ length: height }, () => new Uint8Array(width));
+    this.floorVariants = Array.from({ length: height }, () => new Uint8Array(width));
     this.discovered = Array.from({ length: height }, () => new Uint8Array(width));
     this.visible = Array.from({ length: height }, () => new Uint8Array(width));
 
@@ -158,6 +159,8 @@ class DungeonFloor {
       for (let x = room.x; x < room.x + room.w; x++) {
         if (x >= 1 && x < this.width - 1 && y >= 1 && y < this.height - 1) {
           this.grid[y][x] = TILE.FLOOR;
+          const r = Math.random();
+          this.floorVariants[y][x] = r < 0.12 ? 1 : (r < 0.24 ? 2 : 0);
         }
       }
     }
@@ -167,17 +170,23 @@ class DungeonFloor {
     let cx = x1;
     let cy = y1;
 
+    const setFloor = (x, y) => {
+      this.grid[y][x] = TILE.FLOOR;
+      const r = Math.random();
+      this.floorVariants[y][x] = r < 0.12 ? 1 : (r < 0.24 ? 2 : 0);
+    };
+
     // Déplacement d'abord en X puis en Y
     while (cx !== x2) {
-      this.grid[cy][cx] = TILE.FLOOR;
+      setFloor(cx, cy);
       // Couloir de 2 tiles de large pour une circulation fluide
-      if (cy + 1 < this.height - 1) this.grid[cy + 1][cx] = TILE.FLOOR;
+      if (cy + 1 < this.height - 1) setFloor(cx, cy + 1);
       cx += cx < x2 ? 1 : -1;
     }
 
     while (cy !== y2) {
-      this.grid[cy][cx] = TILE.FLOOR;
-      if (cx + 1 < this.width - 1) this.grid[cy][cx + 1] = TILE.FLOOR;
+      setFloor(cx, cy);
+      if (cx + 1 < this.width - 1) setFloor(cx + 1, cy);
       cy += cy < y2 ? 1 : -1;
     }
   }

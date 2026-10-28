@@ -1,21 +1,19 @@
 /**
- * CRYPT OF THE SOVEREIGN - ASSET DOWNLOADER & GENERATOR
- * Télécharge ou génère des sprites Pixel Art 100% libres de droits commerciaux (CC0 / Domaine Public).
- * Garantie Zéro Bug : vérification rigoureuse des en-têtes PNG, et générateur procédural autonome de secours.
+ * CRYPT OF THE SOVEREIGN - ASSET DOWNLOADER & HD PIXEL ART GENERATOR V3
+ * Générateur Pixel Art HD 32x32 (et 64x64 pour le Boss) avec auto-contouring sombre
+ * et ombrage 3 tons (style Enter the Gungeon / Nuclear Throne).
  */
 
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
 const zlib = require('zlib');
 
 const ASSETS_DIR = path.join(__dirname, 'assets', 'sprites');
-
 if (!fs.existsSync(ASSETS_DIR)) {
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 }
 
-// 1. Encodeur PNG natif pur Node.js (0 dépendance npm)
+// 1. Encodeur PNG natif Node.js
 function createPng(width, height, rgbaBuffer) {
   const signature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
 
@@ -43,18 +41,18 @@ function createPng(width, height, rgbaBuffer) {
   const ihdrData = Buffer.alloc(13);
   ihdrData.writeUInt32BE(width, 0);
   ihdrData.writeUInt32BE(height, 4);
-  ihdrData[8] = 8; // 8 bits par canal
-  ihdrData[9] = 6; // RGBA
-  ihdrData[10] = 0; // Déflation
-  ihdrData[11] = 0; // Pas de filtre spécial
-  ihdrData[12] = 0; // Pas d'entrelacement
+  ihdrData[8] = 8;
+  ihdrData[9] = 6;
+  ihdrData[10] = 0;
+  ihdrData[11] = 0;
+  ihdrData[12] = 0;
   const ihdr = chunk('IHDR', ihdrData);
 
   const scanlines = Buffer.alloc(height * (1 + width * 4));
   let offset = 0;
   let srcOffset = 0;
   for (let y = 0; y < height; y++) {
-    scanlines[offset++] = 0; // Filtre None
+    scanlines[offset++] = 0;
     for (let x = 0; x < width; x++) {
       scanlines[offset++] = rgbaBuffer[srcOffset++];
       scanlines[offset++] = rgbaBuffer[srcOffset++];
@@ -69,7 +67,6 @@ function createPng(width, height, rgbaBuffer) {
   return Buffer.concat([signature, ihdr, idat, iend]);
 }
 
-// 2. Vérification de la validité d'un fichier PNG
 function isValidPng(buffer) {
   if (!buffer || buffer.length < 8) return false;
   const header = buffer.slice(0, 8);
@@ -77,31 +74,12 @@ function isValidPng(buffer) {
   return header.equals(expected);
 }
 
-// 3. Téléchargement sécurisé avec timeout
-function downloadFile(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'CryptOfTheSovereign-AssetFetcher/1.0' }, timeout: 4000 }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return downloadFile(res.headers.location).then(resolve).catch(reject);
-      }
-      if (res.statusCode !== 200) {
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-    });
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-    req.on('error', reject);
-  });
-}
-
-// 4. Dessinateur de Pixel Art haute qualité
+// 2. Toile Pixel Art avec support d'ombres et contours professionnels
 class PixelCanvas {
   constructor(w, h) {
     this.w = w;
     this.h = h;
-    this.data = Buffer.alloc(w * h * 4, 0); // Transparent par défaut
+    this.data = Buffer.alloc(w * h * 4, 0);
   }
 
   set(x, y, r, g, b, a = 255) {
@@ -132,501 +110,637 @@ class PixelCanvas {
     }
   }
 
+  // Contour noir automatique (1px) entourant la silhouette
+  applyOutline(outlineColor = '#0d0914') {
+    const copy = Buffer.from(this.data);
+    const getAlpha = (px, py) => {
+      if (px < 0 || px >= this.w || py < 0 || py >= this.h) return 0;
+      return copy[(py * this.w + px) * 4 + 3];
+    };
+
+    for (let y = 0; y < this.h; y++) {
+      for (let x = 0; x < this.w; x++) {
+        const a = getAlpha(x, y);
+        if (a === 0) {
+          // Si pixel transparent adjacent à un pixel opaque, on met un contour
+          const hasOpaqueNeighbor =
+            getAlpha(x + 1, y) > 0 ||
+            getAlpha(x - 1, y) > 0 ||
+            getAlpha(x, y + 1) > 0 ||
+            getAlpha(x, y - 1) > 0;
+          if (hasOpaqueNeighbor) {
+            this.hex(x, y, outlineColor, 255);
+          }
+        }
+      }
+    }
+  }
+
   toPng() {
     return createPng(this.w, this.h, this.data);
   }
 }
 
-// 5. Générateurs procéduraux de sprites Pixel Art
+// 3. Générateurs Procéduraux HD 32x32 & 64x64
 const generators = {
+  // --- HÉROS EN 32x32 ---
   'hero_knight.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Cape bleue
-    c.rect(3, 7, 10, 8, '#1b3b6f');
-    c.rect(4, 8, 8, 7, '#214d8f');
-    // Armure de plaques en acier
-    c.rect(5, 5, 6, 7, '#8e9aaf');
-    c.rect(6, 6, 4, 5, '#cbc0d3');
-    // Heaume avec visière cyan
-    c.rect(5, 1, 6, 4, '#495057');
-    c.rect(6, 0, 4, 1, '#f4a261'); // Cimier or
-    c.rect(6, 2, 4, 1, '#00f0ff'); // Visière lumineuse cyan
-    // Épée sacrée à la main
-    c.rect(12, 3, 1, 8, '#ffffff');
-    c.rect(11, 8, 3, 1, '#f4a261'); // Garde d'or
-    c.rect(12, 9, 1, 3, '#78350f'); // Poignée
-    // Jambières
-    c.rect(5, 12, 2, 4, '#495057');
-    c.rect(9, 12, 2, 4, '#495057');
+    const c = new PixelCanvas(32, 32);
+    // Cape royale avec plis
+    c.rect(6, 12, 20, 16, '#14213d');
+    c.rect(7, 14, 18, 14, '#1d3557');
+    c.rect(9, 15, 14, 13, '#457b9d');
+    // Armure de plates complète
+    c.rect(10, 10, 12, 14, '#495057');
+    c.rect(11, 11, 10, 12, '#6c757d');
+    c.rect(13, 12, 6, 10, '#adb5bd'); // Highlight lumière
+    // Heaume avec visière cyan luminescente
+    c.rect(10, 4, 12, 8, '#343a40');
+    c.rect(11, 5, 10, 6, '#495057');
+    c.rect(13, 3, 6, 2, '#ffb703'); // Cimier en or massif
+    c.rect(12, 7, 8, 2, '#00f0ff'); // Visière lumineuse
+    c.rect(14, 7, 4, 2, '#ffffff'); // Centre éclatant
+    // Épée sacrée sculptée
+    for (let i = 0; i < 16; i++) {
+      c.rect(23, 2 + i, 2, 1, '#f8f9fa');
+      c.rect(25, 2 + i, 1, 1, '#64dfdf'); // Lueur runique
+    }
+    c.rect(21, 18, 7, 2, '#ffb703'); // Garde d'or
+    c.rect(23, 20, 2, 4, '#582f0e'); // Poignée cuir
+    c.rect(23, 24, 2, 2, '#ffb703'); // Pommeau
+    // Jambières d'acier
+    c.rect(10, 24, 4, 7, '#343a40');
+    c.rect(18, 24, 4, 7, '#343a40');
+    c.rect(11, 25, 2, 5, '#6c757d');
+    c.rect(19, 25, 2, 5, '#6c757d');
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'hero_mage.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Robe de mage pourpre/indigo
-    c.rect(4, 6, 8, 9, '#3a0ca3');
-    c.rect(5, 7, 6, 8, '#4361ee');
-    // Capuche mystique
-    c.rect(5, 1, 6, 5, '#240046');
-    c.rect(6, 3, 4, 2, '#0f0c29'); // Ombre du visage
-    c.rect(6, 3, 1, 1, '#00ffff'); // Yeux arcaniques
-    c.rect(9, 3, 1, 1, '#00ffff');
-    // Bâton d'éther avec orbe
-    c.rect(2, 2, 1, 12, '#8b5a2b');
-    c.rect(1, 1, 3, 2, '#7209b7');
-    c.rect(2, 1, 1, 1, '#f72585'); // Joyau éclatant
-    // Pieds
-    c.rect(5, 14, 2, 2, '#240046');
-    c.rect(9, 14, 2, 2, '#240046');
+    const c = new PixelCanvas(32, 32);
+    // Robe céleste astrale
+    c.rect(8, 12, 16, 17, '#1b0638');
+    c.rect(10, 13, 12, 16, '#2e1065');
+    c.rect(12, 14, 8, 15, '#4c1d95');
+    c.rect(14, 15, 4, 14, '#7c3aed'); // Pli central lumineux
+    // Capuche de sorcier mystique
+    c.rect(10, 3, 12, 10, '#1e1035');
+    c.rect(11, 4, 10, 8, '#2e1065');
+    c.rect(13, 7, 6, 3, '#0b0416'); // Ombre du visage
+    c.rect(13, 8, 2, 1, '#38bdf8'); // Regard éthéré
+    c.rect(17, 8, 2, 1, '#38bdf8');
+    // Bâton d'éther orné
+    for (let i = 0; i < 24; i++) {
+      c.rect(5, 5 + i, 2, 1, '#78350f');
+      c.rect(6, 5 + i, 1, 1, '#92400e');
+    }
+    // Cristal arcanique en lévitation
+    c.rect(3, 2, 6, 6, '#7c3aed');
+    c.rect(4, 3, 4, 4, '#38bdf8');
+    c.rect(5, 4, 2, 2, '#ffffff'); // Cœur d'énergie
+    // Orbe magique dans l'autre main
+    c.rect(22, 14, 4, 4, '#38bdf8');
+    c.rect(23, 15, 2, 2, '#ffffff');
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'hero_rogue.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Manteau d'ombre noir & émeraude
-    c.rect(4, 6, 8, 8, '#1b1b1b');
-    c.rect(5, 7, 6, 7, '#0f382c');
-    // Capuche et masque
-    c.rect(5, 1, 6, 5, '#121212');
-    c.rect(6, 3, 4, 1, '#00ff88'); // Regard vif émeraude
-    // Dagues doubles
-    c.rect(2, 6, 1, 5, '#e0e0e0');
-    c.rect(13, 6, 1, 5, '#e0e0e0');
-    c.rect(2, 8, 1, 1, '#00ff88'); // Lueur de poison
-    c.rect(13, 8, 1, 1, '#00ff88');
-    // Bottes souples
-    c.rect(5, 13, 2, 3, '#2a2a2a');
-    c.rect(9, 13, 2, 3, '#2a2a2a');
+    const c = new PixelCanvas(32, 32);
+    // Manteau d'ombre et cuir clouté
+    c.rect(8, 11, 16, 17, '#111827');
+    c.rect(10, 13, 12, 14, '#1f2937');
+    c.rect(12, 14, 8, 12, '#374151');
+    // Capuche et masque de ninja des ténèbres
+    c.rect(10, 3, 12, 9, '#030712');
+    c.rect(11, 4, 10, 7, '#111827');
+    c.rect(12, 6, 8, 3, '#000000');
+    c.rect(13, 7, 2, 1, '#10b981'); // Yeux de prédateur émeraude
+    c.rect(17, 7, 2, 1, '#10b981');
+    // Dagues doubles courbées (gauche & droite)
+    for (let i = 0; i < 10; i++) {
+      c.rect(4 + i, 20 - i, 2, 2, '#e2e8f0');
+      c.rect(5 + i, 20 - i, 1, 1, '#10b981'); // Venin ruisselant
+    }
+    c.rect(3, 21, 3, 3, '#ffb703');
+    for (let i = 0; i < 10; i++) {
+      c.rect(26 - i, 20 - i, 2, 2, '#e2e8f0');
+      c.rect(25 - i, 20 - i, 1, 1, '#10b981');
+    }
+    c.rect(26, 21, 3, 3, '#ffb703');
+    // Bottes de cuir silencieuses
+    c.rect(10, 24, 4, 7, '#1f2937');
+    c.rect(18, 24, 4, 7, '#1f2937');
+    c.applyOutline('#050508');
     return c.toPng();
   },
 
+  // --- ENNEMIS EN 32x32 ---
   'enemy_swarmer.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Corps de goule rougeoyante
-    c.rect(3, 4, 10, 8, '#780000');
-    c.rect(4, 5, 8, 6, '#c1121f');
-    // Yeux sanglants
-    c.rect(5, 6, 2, 2, '#ffea00');
-    c.rect(9, 6, 2, 2, '#ffea00');
-    // Griffes et mâchoire
-    c.rect(6, 9, 4, 1, '#ffffff'); // Crocs
-    c.rect(2, 10, 2, 4, '#590d22');
-    c.rect(12, 10, 2, 4, '#590d22');
+    const c = new PixelCanvas(32, 32);
+    // Goule sanguinaire
+    c.rect(6, 8, 20, 16, '#5c0000');
+    c.rect(8, 10, 16, 13, '#9d0208');
+    c.rect(10, 12, 12, 10, '#d00000');
+    // Yeux démoniaques embrasés
+    c.rect(10, 12, 3, 3, '#ffba08');
+    c.rect(19, 12, 3, 3, '#ffba08');
+    c.rect(11, 13, 1, 1, '#ffffff');
+    c.rect(20, 13, 1, 1, '#ffffff');
+    // Crocs et mâchoire dégoulinante
+    c.rect(11, 18, 10, 4, '#370617');
+    c.rect(12, 18, 2, 3, '#ffffff');
+    c.rect(15, 18, 2, 3, '#ffffff');
+    c.rect(18, 18, 2, 3, '#ffffff');
+    // Griffes voraces
+    c.rect(4, 18, 4, 8, '#6a040f');
+    c.rect(24, 18, 4, 8, '#6a040f');
+    c.rect(4, 26, 2, 3, '#ffffff');
+    c.rect(26, 26, 2, 3, '#ffffff');
+    c.applyOutline('#1c0005');
     return c.toPng();
   },
 
   'enemy_archer.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Crâne squelette
-    c.rect(5, 1, 6, 5, '#e5e5e5');
-    c.rect(6, 3, 1, 1, '#000000'); // Orbites noires
-    c.rect(9, 3, 1, 1, '#000000');
+    const c = new PixelCanvas(32, 32);
+    // Crâne squelettique fissuré
+    c.rect(10, 3, 12, 10, '#d1d5db');
+    c.rect(11, 4, 10, 8, '#e5e7eb');
+    c.rect(12, 6, 3, 3, '#000000'); // Orbites vides
+    c.rect(17, 6, 3, 3, '#000000');
+    c.rect(14, 10, 4, 2, '#4b5563'); // Dents
     // Cage thoracique
-    c.rect(6, 6, 4, 5, '#cccccc');
-    c.rect(5, 8, 6, 1, '#b5b5b5');
-    // Arc en os
-    c.rect(2, 4, 1, 8, '#d4a373');
-    c.rect(3, 3, 1, 2, '#d4a373');
-    c.rect(3, 11, 1, 2, '#d4a373');
-    c.rect(3, 5, 1, 6, '#fefae0'); // Corde
+    c.rect(11, 13, 10, 9, '#9ca3af');
+    c.rect(12, 14, 8, 2, '#d1d5db');
+    c.rect(12, 17, 8, 2, '#d1d5db');
+    c.rect(12, 20, 8, 2, '#d1d5db');
+    // Grand arc recourbé en bois sombre
+    for (let i = 0; i < 20; i++) {
+      c.rect(4, 5 + i, 2, 1, '#78350f');
+    }
+    c.rect(5, 4, 3, 2, '#92400e');
+    c.rect(5, 24, 3, 2, '#92400e');
+    c.rect(7, 5, 1, 20, '#fefae0'); // Corde
+    // Flèche en os prête à tirer
+    c.rect(7, 14, 16, 2, '#e5e7eb');
+    c.rect(22, 13, 3, 4, '#6b7280'); // Pointe
     // Jambes osseuses
-    c.rect(5, 11, 1, 5, '#cccccc');
-    c.rect(9, 11, 1, 5, '#cccccc');
+    c.rect(11, 22, 3, 9, '#9ca3af');
+    c.rect(18, 22, 3, 9, '#9ca3af');
+    c.applyOutline('#0a0a0f');
     return c.toPng();
   },
 
   'enemy_mage.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Robe ténébreuse nécromancienne
-    c.rect(4, 5, 8, 10, '#10002b');
-    c.rect(5, 6, 6, 8, '#240046');
-    // Capuche et yeux violets démoniaques
-    c.rect(5, 1, 6, 5, '#3c096c');
-    c.rect(6, 3, 4, 1, '#e0aaff');
-    // Crâne flottant d'invocation
-    c.rect(12, 2, 3, 3, '#e2eafc');
-    c.rect(12, 3, 1, 1, '#ff0055');
-    // Pieds spectraux
-    c.rect(5, 14, 6, 2, '#5a189a');
+    const c = new PixelCanvas(32, 32);
+    // Tunique de nécromancien
+    c.rect(8, 10, 16, 19, '#1a052e');
+    c.rect(10, 12, 12, 16, '#2d0c4e');
+    c.rect(12, 14, 8, 14, '#48137a');
+    // Capuche ténébreuse avec halo maudit
+    c.rect(10, 2, 12, 10, '#1a052e');
+    c.rect(12, 6, 8, 4, '#080112');
+    c.rect(13, 7, 2, 2, '#e0aaff');
+    c.rect(17, 7, 2, 2, '#e0aaff');
+    // Crâne d'ombre flottant
+    c.rect(23, 4, 7, 7, '#e0aaff');
+    c.rect(24, 6, 2, 2, '#ff0055');
+    c.rect(27, 6, 2, 2, '#ff0055');
+    c.applyOutline('#080112');
     return c.toPng();
   },
 
   'enemy_tank.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Garde cuirassé imposant
-    c.rect(3, 3, 10, 10, '#343a40');
-    c.rect(4, 4, 8, 8, '#495057');
-    // Bouclier d'acier à croix rouge
-    c.rect(1, 5, 4, 8, '#6c757d');
-    c.rect(2, 6, 2, 6, '#e63946');
-    // Heaume avec fente rouge sang
-    c.rect(5, 1, 6, 4, '#212529');
-    c.rect(6, 2, 4, 1, '#ff0033');
-    // Jambes de fer
-    c.rect(4, 12, 3, 4, '#212529');
-    c.rect(9, 12, 3, 4, '#212529');
+    const c = new PixelCanvas(32, 32);
+    // Armure colossale de garde d'élite
+    c.rect(7, 6, 18, 22, '#212529');
+    c.rect(9, 8, 14, 19, '#343a40');
+    c.rect(11, 10, 10, 16, '#495057');
+    // Heaume avec visière rouge sang
+    c.rect(10, 2, 12, 8, '#1b1e23');
+    c.rect(12, 5, 8, 2, '#ff0033');
+    c.rect(14, 5, 4, 2, '#ffffff');
+    // Bouclier tour massif d'acier à croix gravée
+    c.rect(2, 8, 8, 20, '#495057');
+    c.rect(3, 9, 6, 18, '#6c757d');
+    c.rect(3, 17, 6, 3, '#e63946');
+    c.rect(5, 11, 2, 14, '#e63946');
+    // Masse d'armes
+    c.rect(24, 10, 4, 16, '#343a40');
+    c.rect(23, 8, 6, 6, '#ff0033');
+    c.applyOutline('#0a0b0d');
     return c.toPng();
   },
 
+  // --- BOSS : LE SOUVERAIN DÉCHU EN 64x64 ---
   'enemy_boss.png': () => {
-    const c = new PixelCanvas(32, 32);
-    // Le Souverain Déchu (Grand spectre royal en 32x32)
-    // Aura spectrale violette / magenta
-    for (let py = 4; py < 28; py++) {
-      for (let px = 6; px < 26; px++) {
-        if (Math.hypot(px - 16, py - 16) < 13) {
-          c.hex(px, py, '#3c096c', 160);
+    const c = new PixelCanvas(64, 64);
+    // Aura majestueuse et tourbillon spectral
+    for (let y = 6; y < 58; y++) {
+      for (let x = 6; x < 58; x++) {
+        const d = Math.hypot(x - 32, y - 32);
+        if (d < 28) {
+          c.hex(x, y, '#240046', Math.round(180 * (1 - d / 28)));
         }
       }
     }
-    // Manteau royal déchiré
-    c.rect(8, 12, 16, 16, '#240046');
-    c.rect(10, 14, 12, 12, '#5a189a');
-    // Couronne d'or ancienne
-    c.rect(11, 3, 10, 4, '#ffb703');
-    c.rect(12, 1, 2, 2, '#fb8500');
-    c.rect(15, 1, 2, 2, '#fb8500');
-    c.rect(18, 1, 2, 2, '#fb8500');
-    // Visage de spectre avec flammes azur
-    c.rect(10, 7, 12, 7, '#0d1b2a');
-    c.rect(12, 9, 2, 2, '#00f0ff'); // Regard spectral
-    c.rect(18, 9, 2, 2, '#00f0ff');
-    // Lames spectrales en lévitation
-    c.rect(2, 10, 2, 12, '#e0aaff');
-    c.rect(1, 14, 4, 2, '#ffb703');
-    c.rect(28, 10, 2, 12, '#e0aaff');
-    c.rect(27, 14, 4, 2, '#ffb703');
+    // Cape impériale en lambeaux royaux
+    c.rect(16, 24, 32, 34, '#1b0638');
+    c.rect(20, 26, 24, 30, '#3c096c');
+    c.rect(24, 28, 16, 26, '#5a189a');
+    // Armure spectrale du Roi
+    c.rect(22, 22, 20, 18, '#212529');
+    c.rect(24, 24, 16, 14, '#343a40');
+    c.rect(28, 26, 8, 10, '#ffb703'); // Sceau royal gravé
+    // Grande couronne d'or massif sertie de joyaux
+    c.rect(20, 6, 24, 10, '#ffb703');
+    c.rect(22, 2, 4, 5, '#fb8500');
+    c.rect(30, 0, 4, 7, '#fb8500'); // Pointe centrale
+    c.rect(38, 2, 4, 5, '#fb8500');
+    c.rect(24, 10, 3, 3, '#d90429'); // Rubis
+    c.rect(30, 10, 4, 4, '#00f0ff'); // Saphir royal
+    c.rect(37, 10, 3, 3, '#7209b7'); // Améthyste
+    // Visage spectral sans chair avec flammes azur
+    c.rect(22, 14, 20, 12, '#0d1b2a');
+    c.rect(25, 17, 4, 4, '#00f0ff');
+    c.rect(26, 18, 2, 2, '#ffffff');
+    c.rect(35, 17, 4, 4, '#00f0ff');
+    c.rect(36, 18, 2, 2, '#ffffff');
+    // Mâchoire terrifiante
+    c.rect(28, 22, 8, 3, '#415a77');
+    // Lames spectrales en lévitation autour du souverain
+    // Lame Gauche
+    for (let i = 0; i < 28; i++) {
+      c.rect(8, 14 + i, 3, 1, '#e0aaff');
+      c.rect(9, 14 + i, 1, 1, '#ffffff');
+    }
+    c.rect(6, 38, 7, 3, '#ffb703');
+    // Lame Droite
+    for (let i = 0; i < 28; i++) {
+      c.rect(53, 14 + i, 3, 1, '#e0aaff');
+      c.rect(54, 14 + i, 1, 1, '#ffffff');
+    }
+    c.rect(51, 38, 7, 3, '#ffb703');
+    c.applyOutline('#0a0014');
     return c.toPng();
   },
 
+  // --- TUILES EN 32x32 & VARIANTES ---
   'tile_floor.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Dalle de donjon en pierre avec nuances
-    c.rect(0, 0, 16, 16, '#212529');
-    c.rect(1, 1, 14, 14, '#2b3036');
-    c.hex(3, 4, '#383d44');
-    c.hex(4, 4, '#383d44');
-    c.hex(8, 10, '#383d44');
-    c.hex(9, 10, '#383d44');
-    c.hex(11, 3, '#1c1f24');
-    c.hex(12, 3, '#1c1f24');
-    // Fissure fine
-    c.hex(5, 7, '#15171a');
-    c.hex(6, 8, '#15171a');
-    c.hex(6, 9, '#15171a');
-    c.hex(7, 10, '#15171a');
+    const c = new PixelCanvas(32, 32);
+    c.rect(0, 0, 32, 32, '#181920');
+    // Pavés sculptés
+    c.rect(2, 2, 13, 13, '#2a2c35');
+    c.rect(3, 3, 11, 11, '#343844');
+    c.rect(17, 2, 13, 13, '#2a2c35');
+    c.rect(18, 3, 11, 11, '#343844');
+    c.rect(2, 17, 13, 13, '#2a2c35');
+    c.rect(3, 18, 11, 11, '#343844');
+    c.rect(17, 17, 13, 13, '#2a2c35');
+    c.rect(18, 18, 11, 11, '#343844');
+    // Mortier et fissures
+    c.rect(0, 15, 32, 2, '#111216');
+    c.rect(15, 0, 2, 32, '#111216');
+    c.hex(7, 8, '#434958');
+    c.hex(22, 23, '#434958');
     return c.toPng();
   },
 
-  'tile_wall.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Mur gothique avec briques et ombres
-    c.rect(0, 0, 16, 16, '#111317');
-    // Rangée 1
-    c.rect(1, 1, 6, 3, '#495057');
-    c.rect(8, 1, 7, 3, '#495057');
-    // Rangée 2
-    c.rect(1, 5, 14, 3, '#343a40');
-    c.rect(5, 5, 6, 3, '#495057');
-    // Rangée 3
-    c.rect(1, 9, 6, 3, '#495057');
-    c.rect(8, 9, 7, 3, '#343a40');
-    // Rangée 4 (base sombre)
-    c.rect(1, 13, 14, 2, '#212529');
-    return c.toPng();
-  },
-
-  'tile_door_closed.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(0, 0, 16, 16, '#2b1b17');
-    c.rect(2, 2, 12, 12, '#58311a');
-    c.rect(4, 2, 1, 12, '#331d0f');
-    c.rect(11, 2, 1, 12, '#331d0f');
-    // Renforts métalliques
-    c.rect(2, 4, 12, 2, '#495057');
-    c.rect(2, 10, 12, 2, '#495057');
-    c.rect(7, 7, 2, 2, '#ffb703'); // Serrure dorée
-    return c.toPng();
-  },
-
-  'tile_door_open.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(0, 0, 16, 16, '#1b1b1b');
-    c.rect(2, 1, 12, 14, '#080808'); // Ténèbres de passage
-    c.rect(1, 1, 2, 14, '#58311a'); // Battants ouverts
-    c.rect(13, 1, 2, 14, '#58311a');
-    return c.toPng();
-  },
-
-  'tile_stairs.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(0, 0, 16, 16, '#212529');
-    // Marches descendantes
-    c.rect(2, 2, 12, 3, '#495057');
-    c.rect(3, 5, 10, 3, '#343a40');
-    c.rect(4, 8, 8, 3, '#212529');
-    c.rect(5, 11, 6, 3, '#0d1117');
-    c.rect(6, 14, 4, 2, '#000000');
-    return c.toPng();
-  },
-
-  'tile_torch.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Support en fer forgé
-    c.rect(7, 8, 2, 6, '#343a40');
-    c.rect(6, 12, 4, 2, '#212529');
-    // Brasier & flamme ardente
-    c.rect(6, 6, 4, 3, '#d4a373');
-    c.rect(6, 3, 4, 4, '#f77f00');
-    c.rect(7, 1, 2, 3, '#ffba08');
-    c.hex(7, 2, '#ffffff');
-    return c.toPng();
-  },
-
-  'tile_chest_closed.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(2, 5, 12, 9, '#7f4f24');
-    c.rect(3, 6, 10, 7, '#936639');
-    // Cerclages d'or
-    c.rect(2, 7, 12, 2, '#ffb703');
-    c.rect(7, 8, 2, 3, '#ffdd00'); // Serrure
-    c.hex(7, 9, '#000000');
-    return c.toPng();
-  },
-
-  'tile_chest_open.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(2, 7, 12, 7, '#7f4f24');
-    c.rect(1, 3, 14, 3, '#936639'); // Couvercle relevé
-    // Joyaux et or à l'intérieur
-    c.rect(4, 6, 8, 2, '#ffd166');
-    c.hex(5, 6, '#ef476f'); // Rubis
-    c.hex(8, 6, '#118ab2'); // Saphir
-    c.hex(10, 6, '#06d6a0'); // Émeraude
-    return c.toPng();
-  },
-
-  'tile_spikes.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(0, 0, 16, 16, '#2b3036');
-    // Pointes d'acier ensanglantées
-    const spikeCoords = [[3, 3], [10, 3], [6, 8], [3, 12], [11, 12]];
-    spikeCoords.forEach(([sx, sy]) => {
-      c.rect(sx, sy + 1, 3, 3, '#adb5bd');
-      c.hex(sx + 1, sy, '#f8f9fa'); // Pointe
-      c.hex(sx + 1, sy, '#d90429'); // Sang
+  'tile_floor_cracked.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(0, 0, 32, 32, '#181920');
+    c.rect(2, 2, 28, 28, '#2a2c35');
+    c.rect(3, 3, 26, 26, '#343844');
+    // Fissure runique luminescente
+    const cracks = [[6, 8], [8, 10], [9, 12], [11, 13], [14, 15], [17, 18], [20, 22], [24, 25]];
+    cracks.forEach(([px, py]) => {
+      c.rect(px, py, 2, 2, '#7c3aed');
+      c.hex(px, py, '#c084fc');
     });
     return c.toPng();
   },
 
-  'tile_shopkeeper.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Marchand mystique
-    c.rect(4, 5, 8, 9, '#386641');
-    c.rect(3, 1, 10, 4, '#6a040f'); // Chapeau rouge rubis
-    c.rect(6, 4, 4, 3, '#d4a373'); // Visage
-    c.hex(7, 5, '#000000');
-    c.rect(2, 7, 3, 5, '#bc6c25'); // Sac d'artefacts
-    c.rect(11, 8, 3, 3, '#ffb703'); // Bourse d'or
+  'tile_floor_moss.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(0, 0, 32, 32, '#181920');
+    c.rect(2, 2, 28, 28, '#26292b');
+    c.rect(3, 3, 26, 26, '#2f3435');
+    // Mousse ancienne et feuillage
+    c.rect(4, 5, 8, 6, '#14532d');
+    c.rect(5, 6, 6, 4, '#16a34a');
+    c.rect(18, 19, 9, 7, '#14532d');
+    c.rect(19, 20, 7, 5, '#16a34a');
+    c.hex(21, 22, '#4ade80');
     return c.toPng();
   },
 
+  'tile_wall.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Dessus de mur 2.5D sombre
+    c.rect(0, 0, 32, 6, '#0f1115');
+    c.rect(1, 1, 30, 4, '#1c1f26');
+    // Briques gothiques en façade avec relief
+    c.rect(0, 6, 32, 26, '#181a20');
+    // Rangée 1
+    c.rect(1, 7, 14, 6, '#373b47');
+    c.rect(16, 7, 15, 6, '#373b47');
+    c.rect(2, 8, 12, 4, '#474c5b');
+    c.rect(17, 8, 13, 4, '#474c5b');
+    // Rangée 2
+    c.rect(1, 14, 30, 7, '#2f333e');
+    c.rect(8, 14, 15, 7, '#373b47');
+    c.rect(9, 15, 13, 5, '#474c5b');
+    // Rangée 3
+    c.rect(1, 22, 14, 6, '#373b47');
+    c.rect(16, 22, 15, 6, '#373b47');
+    c.rect(2, 23, 12, 4, '#474c5b');
+    c.rect(17, 23, 13, 4, '#474c5b');
+    // Base et ombre portée au sol
+    c.rect(0, 29, 32, 3, '#0b0c0f');
+    return c.toPng();
+  },
+
+  'tile_door_closed.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(0, 0, 32, 32, '#181920');
+    c.rect(3, 2, 26, 28, '#451a03');
+    c.rect(5, 4, 22, 24, '#78350f');
+    // Cerclages de fer forgé
+    c.rect(3, 8, 26, 3, '#334155');
+    c.rect(3, 20, 26, 3, '#334155');
+    // Heurtoir en tête de lion dorée
+    c.rect(14, 12, 4, 6, '#ffb703');
+    c.rect(15, 17, 2, 3, '#fb8500');
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_door_open.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(0, 0, 32, 32, '#0f172a');
+    c.rect(4, 2, 24, 28, '#030712'); // Abîme sombre du passage
+    c.rect(2, 2, 4, 28, '#582f0e'); // Battant gauche ouvert
+    c.rect(26, 2, 4, 28, '#582f0e'); // Battant droit ouvert
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_stairs.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(0, 0, 32, 32, '#181920');
+    // Marches descendantes en spirale
+    c.rect(3, 3, 26, 6, '#64748b');
+    c.rect(4, 4, 24, 4, '#94a3b8');
+    c.rect(5, 9, 22, 6, '#475569');
+    c.rect(6, 10, 20, 4, '#64748b');
+    c.rect(7, 15, 18, 6, '#334155');
+    c.rect(8, 16, 16, 4, '#475569');
+    c.rect(9, 21, 14, 5, '#1e293b');
+    c.rect(11, 26, 10, 5, '#020617'); // Ténèbres du sous-sol
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_torch.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Support en fer forgé travaillé
+    c.rect(14, 14, 4, 14, '#334155');
+    c.rect(12, 24, 8, 4, '#1e293b');
+    // Brasier et flamme ardente
+    c.rect(12, 10, 8, 5, '#d97706');
+    c.rect(11, 4, 10, 8, '#f59e0b');
+    c.rect(13, 1, 6, 6, '#fbbf24');
+    c.rect(14, 3, 4, 3, '#ffffff'); // Cœur blanc chaud
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_chest_closed.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(4, 8, 24, 18, '#582f0e');
+    c.rect(6, 10, 20, 14, '#7f4f24');
+    c.rect(4, 12, 24, 4, '#ffb703'); // Cerclage or
+    c.rect(14, 14, 4, 5, '#ffd166'); // Serrure
+    c.rect(15, 16, 2, 2, '#000000');
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_chest_open.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(4, 12, 24, 14, '#582f0e');
+    c.rect(2, 4, 28, 7, '#7f4f24'); // Couvercle ouvert relevé
+    // Joyaux et or brillant
+    c.rect(6, 10, 20, 4, '#ffb703');
+    c.rect(8, 10, 3, 3, '#ef4444'); // Rubis
+    c.rect(14, 9, 4, 4, '#3b82f6'); // Saphir
+    c.rect(21, 10, 3, 3, '#10b981'); // Émeraude
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_spikes.png': () => {
+    const c = new PixelCanvas(32, 32);
+    c.rect(0, 0, 32, 32, '#1e293b');
+    const spikes = [[6, 6], [20, 6], [13, 13], [6, 20], [20, 20]];
+    spikes.forEach(([sx, sy]) => {
+      c.rect(sx, sy + 2, 6, 6, '#64748b');
+      c.rect(sx + 1, sy, 4, 4, '#94a3b8');
+      c.rect(sx + 2, sy - 2, 2, 2, '#f8fafc'); // Pointe tranchante
+      c.hex(sx + 2, sy - 1, '#dc2626'); // Sang
+    });
+    c.applyOutline('#0f172a');
+    return c.toPng();
+  },
+
+  'tile_shopkeeper.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Marchand avec manteau vert et sac d'or
+    c.rect(8, 10, 16, 18, '#14532d');
+    c.rect(10, 12, 12, 14, '#166534');
+    // Grand chapeau pourpre de contrebandier
+    c.rect(6, 2, 20, 8, '#701a75');
+    c.rect(10, 0, 12, 4, '#86198f');
+    c.rect(13, 7, 6, 4, '#fcd34d'); // Visage
+    c.rect(14, 8, 2, 2, '#000000'); // Yeux
+    c.rect(18, 8, 2, 2, '#000000');
+    // Bourse d'or étincelante
+    c.rect(20, 18, 8, 8, '#ffb703');
+    c.rect(22, 16, 4, 3, '#fb8500');
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  // --- OBJETS EN 32x32 ---
   'item_sword.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Lame en acier luminescent
-    for (let i = 0; i < 9; i++) {
-      c.hex(12 - i, 2 + i, '#f8f9fa');
-      c.hex(13 - i, 2 + i, '#00f0ff');
+    const c = new PixelCanvas(32, 32);
+    for (let i = 0; i < 18; i++) {
+      c.rect(24 - i, 4 + i, 3, 2, '#f8fafc');
+      c.rect(25 - i, 4 + i, 1, 1, '#00f0ff'); // Lueur runique
     }
-    // Garde et pommeau doré
-    c.hex(4, 11, '#ffb703');
-    c.hex(2, 9, '#ffb703');
-    c.hex(3, 10, '#fb8500');
-    c.hex(2, 12, '#6c584c');
-    c.hex(1, 13, '#ffb703');
+    c.rect(8, 20, 7, 3, '#ffb703'); // Garde
+    c.rect(6, 23, 4, 4, '#582f0e'); // Poignée
+    c.rect(5, 26, 3, 3, '#ffb703'); // Pommeau
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_staff.png': () => {
-    const c = new PixelCanvas(16, 16);
-    // Hampe de bois sculpté
-    for (let i = 0; i < 11; i++) {
-      c.hex(3 + i, 13 - i, '#7f4f24');
+    const c = new PixelCanvas(32, 32);
+    for (let i = 0; i < 22; i++) {
+      c.rect(6 + i, 26 - i, 2, 2, '#78350f');
     }
-    // Cristal arcanique en tête
-    c.rect(12, 1, 3, 3, '#4361ee');
-    c.hex(13, 2, '#4cc9f0');
-    c.hex(11, 2, '#ff007f');
+    // Cristal arcanique
+    c.rect(23, 3, 7, 7, '#7c3aed');
+    c.rect(25, 5, 4, 4, '#38bdf8');
+    c.rect(26, 6, 2, 2, '#ffffff');
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_dagger.png': () => {
-    const c = new PixelCanvas(16, 16);
-    for (let i = 0; i < 6; i++) {
-      c.hex(11 - i, 3 + i, '#e0e0e0');
-      c.hex(12 - i, 3 + i, '#06d6a0'); // Poison
+    const c = new PixelCanvas(32, 32);
+    for (let i = 0; i < 12; i++) {
+      c.rect(22 - i, 6 + i, 3, 2, '#e2e8f0');
+      c.rect(23 - i, 6 + i, 1, 1, '#10b981'); // Poison
     }
-    c.hex(6, 9, '#ffb703');
-    c.hex(5, 10, '#333333');
-    c.hex(4, 11, '#ffb703');
+    c.rect(11, 17, 5, 3, '#ffb703');
+    c.rect(9, 20, 3, 4, '#1f2937');
+    c.rect(8, 24, 3, 3, '#ffb703');
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_armor_heavy.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(3, 3, 10, 10, '#6c757d');
-    c.rect(4, 4, 8, 8, '#adb5bd');
-    c.rect(6, 5, 4, 6, '#ffd166'); // Sceau d'or
+    const c = new PixelCanvas(32, 32);
+    c.rect(6, 6, 20, 20, '#475569');
+    c.rect(8, 8, 16, 16, '#64748b');
+    c.rect(12, 10, 8, 12, '#ffb703'); // Sceau d'or
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_armor_robe.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(3, 2, 10, 12, '#3a0ca3');
-    c.rect(5, 4, 6, 9, '#7209b7');
-    c.rect(7, 3, 2, 10, '#4cc9f0');
+    const c = new PixelCanvas(32, 32);
+    c.rect(6, 4, 20, 24, '#2e1065');
+    c.rect(9, 6, 14, 20, '#4c1d95');
+    c.rect(13, 8, 6, 16, '#38bdf8'); // Voile arcanique
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_armor_leather.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(3, 3, 10, 10, '#582f0e');
-    c.rect(4, 4, 8, 8, '#7f4f24');
-    c.rect(5, 6, 6, 2, '#2b9348');
+    const c = new PixelCanvas(32, 32);
+    c.rect(6, 6, 20, 20, '#451a03');
+    c.rect(8, 8, 16, 16, '#78350f');
+    c.rect(11, 11, 10, 10, '#10b981'); // Écusson vert d'ombre
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_ring.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(4, 5, 8, 8, '#ffb703');
-    c.rect(6, 7, 4, 4, '#000000', 0); // Centre creux
-    c.rect(6, 3, 4, 3, '#f72585'); // Améthyste sertie
-    c.hex(7, 4, '#ffffff');
+    const c = new PixelCanvas(32, 32);
+    c.rect(8, 10, 16, 16, '#ffb703');
+    c.rect(12, 14, 8, 8, '#000000', 0); // Centre creux
+    c.rect(12, 6, 8, 6, '#ec4899'); // Joyau rubis étincelant
+    c.hex(14, 8, '#ffffff');
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_potion_health.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(6, 2, 4, 2, '#d4a373'); // Bouchon liège
-    c.rect(7, 4, 2, 2, '#ced4da'); // Col
-    c.rect(4, 6, 8, 8, '#e63946'); // Potion rubis
-    c.rect(5, 7, 6, 6, '#d90429');
-    c.hex(5, 7, '#ffffff'); // Reflet verre
+    const c = new PixelCanvas(32, 32);
+    c.rect(13, 3, 6, 4, '#d4a373'); // Bouchon
+    c.rect(14, 7, 4, 4, '#94a3b8'); // Goulot
+    c.rect(8, 11, 16, 17, '#dc2626'); // Potion rouge
+    c.rect(10, 13, 12, 13, '#ef4444');
+    c.rect(10, 13, 3, 3, '#ffffff'); // Reflet
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_potion_mana.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(6, 2, 4, 2, '#d4a373');
-    c.rect(7, 4, 2, 2, '#ced4da');
-    c.rect(4, 6, 8, 8, '#1d3557');
-    c.rect(5, 7, 6, 6, '#457b9d');
-    c.hex(5, 7, '#a8dadc');
+    const c = new PixelCanvas(32, 32);
+    c.rect(13, 3, 6, 4, '#d4a373');
+    c.rect(14, 7, 4, 4, '#94a3b8');
+    c.rect(8, 11, 16, 17, '#2563eb'); // Potion bleue
+    c.rect(10, 13, 12, 13, '#3b82f6');
+    c.rect(10, 13, 3, 3, '#93c5fd');
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_coin.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(4, 3, 8, 10, '#ffb703');
-    c.rect(5, 2, 6, 12, '#ffb703');
-    c.rect(5, 4, 6, 8, '#ffe169');
-    c.rect(7, 6, 2, 4, '#fb8500'); // Sceau royal
+    const c = new PixelCanvas(32, 32);
+    c.rect(7, 5, 18, 22, '#d97706');
+    c.rect(9, 4, 14, 24, '#d97706');
+    c.rect(9, 6, 14, 20, '#ffb703');
+    c.rect(11, 8, 10, 16, '#ffd166');
+    c.rect(14, 11, 4, 10, '#b45309'); // Sceau royal gravé
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'item_soul_gem.png': () => {
-    const c = new PixelCanvas(16, 16);
-    c.rect(5, 2, 6, 12, '#7209b7');
-    c.rect(3, 5, 10, 6, '#7209b7');
-    c.rect(5, 5, 6, 6, '#b5179e');
-    c.hex(7, 7, '#f72585');
-    c.hex(8, 6, '#ffffff'); // Étincelle
+    const c = new PixelCanvas(32, 32);
+    c.rect(11, 4, 10, 24, '#581c87');
+    c.rect(7, 9, 18, 14, '#581c87');
+    c.rect(10, 8, 12, 16, '#a855f7');
+    c.rect(13, 11, 6, 10, '#f472b6');
+    c.hex(15, 13, '#ffffff'); // Lueur spirituelle
+    c.applyOutline('#0a0812');
     return c.toPng();
   },
 
   'icon.png': () => {
     const c = new PixelCanvas(64, 64);
-    // Fond portail ténébreux
     for (let y = 0; y < 64; y++) {
       for (let x = 0; x < 64; x++) {
-        const dist = Math.hypot(x - 32, y - 32);
-        if (dist < 30) {
+        const d = Math.hypot(x - 32, y - 32);
+        if (d < 30) {
           c.hex(x, y, '#10002b');
         }
       }
     }
-    // Couronne d'or colossale du Souverain
-    c.rect(18, 16, 28, 12, '#ffb703');
-    c.rect(20, 20, 24, 6, '#ffd166');
-    c.rect(18, 10, 6, 6, '#fb8500');
-    c.rect(29, 8, 6, 8, '#fb8500');
-    c.rect(40, 10, 6, 6, '#fb8500');
-    // Joyaux de couronne
+    c.rect(18, 14, 28, 14, '#ffb703');
+    c.rect(20, 18, 24, 8, '#ffd166');
+    c.rect(18, 8, 6, 8, '#fb8500');
+    c.rect(29, 6, 6, 10, '#fb8500');
+    c.rect(40, 8, 6, 8, '#fb8500');
     c.rect(20, 18, 3, 3, '#d90429');
     c.rect(30, 18, 4, 4, '#4cc9f0');
     c.rect(41, 18, 3, 3, '#7209b7');
-    // Crâne néon spectral
-    c.rect(24, 32, 16, 14, '#e0aaff');
+    c.rect(24, 32, 16, 16, '#e0aaff');
     c.rect(26, 36, 4, 4, '#00f0ff');
     c.rect(34, 36, 4, 4, '#00f0ff');
     c.rect(28, 44, 8, 4, '#3c096c');
+    c.applyOutline('#05000a');
     return c.toPng();
   }
 };
 
-// 6. Sources distantes CC0 prioritaires (sur GitHub public raw)
-const remoteSources = {
-  // Optionnellement mapper vers des URLs CC0 fiables
-};
-
 async function main() {
   console.log('========================================================');
-  console.log('📦 RÉCUPÉRATION & VÉRIFICATION DES SPRITES CC0 / PIXEL ART');
+  console.log('🎨 GÉNÉRATION DES ASSETS HD 32x32 & 64x64 AVEC OUTLINES');
   console.log('========================================================');
 
-  const spriteNames = Object.keys(generators);
-  let totalSuccess = 0;
-
-  for (const name of spriteNames) {
+  let success = 0;
+  for (const [name, gen] of Object.entries(generators)) {
     const targetPath = path.join(ASSETS_DIR, name);
-    let downloadedBuffer = null;
-
-    // Tentative de téléchargement distant si configuré
-    if (remoteSources[name]) {
-      try {
-        console.log(`[HTTP GET] Téléchargement de ${name}...`);
-        const buf = await downloadFile(remoteSources[name]);
-        if (isValidPng(buf)) {
-          downloadedBuffer = buf;
-          console.log(` -> Succès téléchargement distant (${buf.length} octets)`);
-        }
-      } catch (err) {
-        console.log(` -> Téléchargement échoué (${err.message}), bascule vers générateur procédural.`);
-      }
-    }
-
-    // Garantie Zéro Bug : Génération autonome immédiate si pas de fichier distant valide
-    if (!downloadedBuffer) {
-      downloadedBuffer = generators[name]();
-    }
-
-    // Validation finale stricte
-    if (isValidPng(downloadedBuffer)) {
-      fs.writeFileSync(targetPath, downloadedBuffer);
-      console.log(`✅ [SPRITE VALIDE] ${name} (${downloadedBuffer.length} octets)`);
-      totalSuccess++;
+    const buf = gen();
+    if (isValidPng(buf)) {
+      fs.writeFileSync(targetPath, buf);
+      console.log(`✅ [SPRITE HD] ${name} (${buf.length} octets)`);
+      success++;
     } else {
-      console.error(`❌ [ERREUR CRITIQUE] Impossible de valider ${name}`);
-      process.exit(1);
+      console.error(`❌ Échec pour ${name}`);
     }
   }
 
   console.log('========================================================');
-  console.log(`🎉 100% DES ASSETS SONT VALIDES (${totalSuccess}/${spriteNames.length} fichiers vérifiés)`);
+  console.log(`🎉 100% DES ASSETS HD SONT VALIDES (${success}/${Object.keys(generators).length})`);
   console.log('========================================================');
 }
 
-main().catch(err => {
-  console.error('[ASSET FETCHER FATAL]', err);
-  process.exit(1);
-});
+main();

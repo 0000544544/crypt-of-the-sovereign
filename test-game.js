@@ -66,6 +66,9 @@ async function runTests() {
         consoleErrors.push(data.params.args.map(a => a.value || a.description).join(' '));
       }
     }
+    if (data.method === 'Runtime.exceptionThrown') {
+      consoleErrors.push(data.params.exceptionDetails.text + ' ' + (data.params.exceptionDetails.exception?.description || ''));
+    }
     if (data.id && callbacks.has(data.id)) {
       const { resolve, reject } = callbacks.get(data.id);
       callbacks.delete(data.id);
@@ -75,6 +78,9 @@ async function runTests() {
   };
 
   await sendCommand('Runtime.enable');
+  await sendCommand('Page.enable');
+  await sendCommand('Page.navigate', { url: TARGET_URL });
+  await new Promise(r => setTimeout(r, 2000));
 
   async function evaluate(expression) {
     const res = await sendCommand('Runtime.evaluate', {
@@ -320,6 +326,64 @@ async function runTests() {
     if (!bugFixesCheck.iframesValid) throw new Error('Les frames d\'invulnérabilité de takeDamage ont échoué');
     if (!bugFixesCheck.chestOpened) throw new Error('L\'interaction KeyE sur le coffre a échoué');
     if (!bugFixesCheck.inventoryStable) throw new Error('L\'inventaire KeyI clignote ou ne reste pas ouvert sur les frames successives');
+
+    // TEST 8c : Validation des correctifs de logique V3 et du moteur visuel
+    console.log('[TEST 8c] Validation des correctifs de logique V3 et du moteur visuel...');
+    const v3Check = await evaluate(`
+      (() => {
+        const g = window.gameInstance;
+
+        // 1. Test Shockwaves Array & Expansion
+        g.player.activeShockwave = { x: g.player.x, y: g.player.y, radius: 80, damage: 25, freezeDuration: 1.0 };
+        g.update(0.016);
+        const shockwaveActive = (g.shockwaves.length > 0 && g.shockwaves[0].currentRadius >= 10);
+
+        // 2. Test Blink Astral Mage (isRolling === false)
+        g.startRun('mage');
+        g.input.actions.roll = true;
+        g.update(0.016);
+        g.input.actions.roll = false;
+        const mageBlinkRolling = g.player.isRolling; // Must be false!
+
+        // 3. Test Boss HUD caché tant qu'il n'est pas vu
+        const bossHudHidden = (g.dom.bossHud.style.display === 'none');
+
+        // 4. Test Boutique avec sac plein (l'or ne doit pas être déduit)
+        const initialGold = g.inventory.gold = 500;
+        // Remplir le sac à 16 items
+        while (g.inventory.bag.length < g.inventory.maxBagSlots) {
+          g.inventory.bag.push(window.ItemGenerator.createItem(1, 'common'));
+        }
+        g.dungeon.shopkeeper = {
+          x: g.player.x,
+          y: g.player.y,
+          items: [window.ItemGenerator.createItem(1, 'epic')]
+        };
+        g.dungeon.shopkeeper.items[0].price = 100;
+        g.renderShopUI();
+        const buyBtn = document.querySelector('.btn-buy');
+        if (buyBtn) buyBtn.click();
+        const goldAfterFailedBuy = g.inventory.gold;
+        const shopProtectionValid = (goldAfterFailedBuy === initialGold && g.dungeon.shopkeeper.items.length === 1);
+
+        // 5. Test Particules
+        const particlesWorking = (g.particles && g.particles.particles !== undefined);
+
+        return {
+          shockwaveActive,
+          mageBlinkImmediate: !mageBlinkRolling,
+          bossHudHidden,
+          shopProtectionValid,
+          particlesWorking
+        };
+      })()
+    `);
+    console.log(' -> Validation V3 :', v3Check);
+    if (!v3Check.shockwaveActive) throw new Error('Les ondes de choc visuelles n\'ont pas été enregistrées');
+    if (!v3Check.mageBlinkImmediate) throw new Error('Le Blink Astral bloque le mage dans l\'état isRolling');
+    if (!v3Check.bossHudHidden) throw new Error('Le HUD du Boss est affiché alors qu\'il n\'est pas dans le champ de vision');
+    if (!v3Check.shopProtectionValid) throw new Error('La boutique a déduit l\'or alors que le sac était plein');
+    if (!v3Check.particlesWorking) throw new Error('Le ParticleManager n\'est pas actif');
 
     // TEST 9 : Test de fluidité 60 FPS
     console.log('[TEST 9] Mesure de fluidité sur 60 images (60 FPS)...');

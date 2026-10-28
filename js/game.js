@@ -26,10 +26,15 @@ class Game {
     this.currentFloorNumber = 1;
     this.dungeon = null;
     this.player = null;
+    // Entités et particules
     this.enemies = [];
     this.projectiles = [];
     this.drops = [];
     this.damageNumbers = [];
+    this.shockwaves = [];
+    this.particles = new ParticleManager();
+    this.currentRoom = null;
+    this.invFullCooldown = 0;
 
     // Caméra
     this.camera = { x: 0, y: 0 };
@@ -82,6 +87,17 @@ class Game {
 
   async init() {
     this.bindDomEvents();
+
+    // Application des volumes sauvegardés dans settings
+    const settings = this.storage.data.settings || { masterVolume: 0.7, musicVolume: 0.5, sfxVolume: 0.8 };
+    this.sound.setVolumes(settings.masterVolume, settings.musicVolume, settings.sfxVolume);
+    const sliderMaster = document.getElementById('sliderMasterVol');
+    const sliderMusic = document.getElementById('sliderMusicVol');
+    const sliderSfx = document.getElementById('sliderSfxVol');
+    if (sliderMaster) sliderMaster.value = settings.masterVolume;
+    if (sliderMusic) sliderMusic.value = settings.musicVolume;
+    if (sliderSfx) sliderSfx.value = settings.sfxVolume;
+
     await this.preloadSprites();
     this.sound.playMusic('hub');
     this.renderSanctuaryUI();
@@ -95,7 +111,7 @@ class Game {
     const spriteList = [
       'hero_knight.png', 'hero_mage.png', 'hero_rogue.png',
       'enemy_swarmer.png', 'enemy_archer.png', 'enemy_mage.png', 'enemy_tank.png', 'enemy_boss.png',
-      'tile_floor.png', 'tile_wall.png', 'tile_door_closed.png', 'tile_door_open.png', 'tile_stairs.png',
+      'tile_floor.png', 'tile_floor_cracked.png', 'tile_floor_moss.png', 'tile_wall.png', 'tile_door_closed.png', 'tile_door_open.png', 'tile_stairs.png',
       'tile_torch.png', 'tile_chest_closed.png', 'tile_chest_open.png', 'tile_spikes.png', 'tile_shopkeeper.png',
       'item_sword.png', 'item_staff.png', 'item_dagger.png', 'item_armor_heavy.png', 'item_armor_robe.png',
       'item_armor_leather.png', 'item_ring.png', 'item_potion_health.png', 'item_potion_mana.png',
@@ -349,6 +365,9 @@ class Game {
     this.projectiles = [];
     this.drops = [];
     this.damageNumbers = [];
+    this.shockwaves = [];
+    this.particles = new ParticleManager();
+    this.currentRoom = this.dungeon.startRoom;
 
     // Faire apparaître les monstres dans les salles de combat
     for (const room of this.dungeon.rooms) {
@@ -476,6 +495,30 @@ class Game {
     // 4. Brouillard de guerre et visibilité
     this.dungeon.updateFog(this.player.x, this.player.y, 280);
 
+    // Vérification du changement de salle pour réinitialiser Tempête d'Âmes
+    const pTileX = Math.floor(this.player.x / TILE_SIZE);
+    const pTileY = Math.floor(this.player.y / TILE_SIZE);
+    let currentRoomFound = null;
+    for (const r of this.dungeon.rooms) {
+      if (pTileX >= r.x && pTileX < r.x + r.w && pTileY >= r.y && pTileY < r.y + r.h) {
+        currentRoomFound = r;
+        break;
+      }
+    }
+    if (currentRoomFound && currentRoomFound !== this.currentRoom) {
+      this.currentRoom = currentRoomFound;
+      this.roomKills = 0;
+    }
+
+    // Braises des torches visibles
+    for (const torch of this.dungeon.torches) {
+      const ttx = Math.floor(torch.x / TILE_SIZE);
+      const tty = Math.floor(torch.y / TILE_SIZE);
+      if (this.dungeon.visible[tty]?.[ttx] === 1 && Math.random() < 0.25) {
+        this.particles.addTorchEmber(torch.x + 16, torch.y + 16);
+      }
+    }
+
     // 5. Gestion des attaques de mêlée du joueur
     if (this.player.activeMeleeHitbox) {
       const hb = this.player.activeMeleeHitbox;
@@ -505,6 +548,12 @@ class Game {
               }
               this.runStats.damageDealt += totalDealt;
 
+              // Juice visuel & particules d'impact
+              if (hb.isCrit) {
+                this.screenShake = Math.max(this.screenShake, 6);
+              }
+              this.particles.addHitSpark(e.x, e.y, hb.isCrit ? '#f59e0b' : '#ef4444', hb.isCrit ? 12 : 7);
+
               // Passif Vampirisme (8% de soins)
               if (this.player.passives && this.player.passives.some(p => p.includes('Vampirisme'))) {
                 this.player.heal(Math.max(1, Math.round(totalDealt * 0.08)));
@@ -514,6 +563,7 @@ class Game {
               if (this.player.passives && this.player.passives.some(p => p.includes('Exécution')) && e.hp > 0 && e.hp < e.maxHp * 0.2 && !e.isBoss) {
                 e.hp = 0;
                 this.sound.playEnemyDeath();
+                this.particles.addDeathBurst(e.x, e.y, '#ef4444', 30);
                 this.damageNumbers.push(new DamageNumber(e.x, e.y - 20, 'EXÉCUTION !', '#ff0033', true));
               }
 
@@ -534,29 +584,59 @@ class Game {
       this.player.activeMeleeHitbox = null;
     }
 
-    // 6. Gestion des Ondes de Choc (Compétences Spéciales Chevalier / Mage)
+    // 6. Gestion des Ondes de Choc en expansion (Compétences Spéciales Chevalier / Mage)
     if (this.player.activeShockwave) {
       const sw = this.player.activeShockwave;
+      this.shockwaves.push({
+        x: sw.x,
+        y: sw.y,
+        currentRadius: 10,
+        maxRadius: sw.radius,
+        color: sw.color || (this.player.classDef.id === 'mage' ? '#7209b7' : '#00f0ff'),
+        damage: sw.damage,
+        freezeDuration: sw.freezeDuration,
+        life: 0.35,
+        maxLife: 0.35,
+        hitSet: new Set()
+      });
+      this.screenShake = Math.max(this.screenShake, 12);
+      this.player.activeShockwave = null;
+    }
+
+    // Mise à jour des ondes de choc
+    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+      const sw = this.shockwaves[i];
+      sw.life -= dt;
+      const progress = 1 - Math.max(0, sw.life / sw.maxLife);
+      sw.currentRadius = 10 + (sw.maxRadius - 10) * progress;
+
       for (const e of this.enemies) {
         if (!sw.hitSet.has(e)) {
           const dist = Math.hypot(e.x - sw.x, e.y - sw.y);
-          if (dist <= sw.radius + e.radius) {
+          if (dist <= sw.currentRadius + e.radius) {
             sw.hitSet.add(e);
             const dealt = e.takeDamage(sw.damage, this.sound, this.damageNumbers, true);
             this.runStats.damageDealt += dealt;
             if (sw.freezeDuration) {
               e.freezeTimer = sw.freezeDuration;
             }
+            this.particles.addHitSpark(e.x, e.y, sw.color, 8);
           }
         }
       }
-      this.player.activeShockwave = null;
+
+      if (sw.life <= 0) {
+        this.shockwaves.splice(i, 1);
+      }
     }
 
     // 7. Projectiles (Joueur et Ennemis)
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.update(dt, this.dungeon, this.player);
+
+      // Traînée magique derrière les projectiles
+      this.particles.addProjectileTrail(p.x, p.y, p.color);
 
       if (p.life <= 0) {
         this.projectiles.splice(i, 1);
@@ -576,6 +656,7 @@ class Game {
               }
               const dealt = e.takeDamage(pDamage, this.sound, this.damageNumbers);
               this.runStats.damageDealt += dealt;
+              this.particles.addHitSpark(e.x, e.y, p.color, 8);
 
               // Passif Vampirisme
               if (this.player.passives && this.player.passives.some(pass => pass.includes('Vampirisme'))) {
@@ -586,6 +667,7 @@ class Game {
               if (this.player.passives && this.player.passives.some(pass => pass.includes('Exécution')) && e.hp > 0 && e.hp < e.maxHp * 0.2 && !e.isBoss) {
                 e.hp = 0;
                 this.sound.playEnemyDeath();
+                this.particles.addDeathBurst(e.x, e.y, '#ef4444', 30);
                 this.damageNumbers.push(new DamageNumber(e.x, e.y - 20, 'EXÉCUTION !', '#ff0033', true));
               }
 
@@ -602,6 +684,8 @@ class Game {
         const dist = Math.hypot(this.player.x - p.x, this.player.y - p.y);
         if (dist < this.player.radius + p.radius) {
           this.player.takeDamage(p.damage, this.sound, this.damageNumbers, 'Tir Ténébreux');
+          this.screenShake = Math.max(this.screenShake, 6);
+          this.particles.addHitSpark(this.player.x, this.player.y, '#ef4444', 8);
           this.projectiles.splice(i, 1);
         }
       }
@@ -613,6 +697,11 @@ class Game {
       const e = this.enemies[i];
       e.update(dt, this.player, this.dungeon, this.sound, this.projectiles, this.damageNumbers);
 
+      // Bulles vertes sur les ennemis empoisonnés
+      if (e.poisonTimer > 0 && Math.random() < 0.25) {
+        this.particles.addPoisonBubble(e.x, e.y);
+      }
+
       if (e.isBoss && e.hp > 0) {
         bossAlive = e;
       }
@@ -620,8 +709,11 @@ class Game {
       if (e.hp <= 0) {
         this.runStats.kills++;
         this.roomKills = (this.roomKills || 0) + 1;
-        const soulRate = 1 + (this.storage.getSanctuaryBonuses().soulBonus || 0);
+        const soulRate = 1 + (this.player.soulBonus || 0);
         const soulsGained = Math.round(e.xpSouls * soulRate);
+
+        // Explosion de 40 particules à la mort d'un monstre
+        this.particles.addDeathBurst(e.x, e.y, e.isBoss ? '#7209b7' : '#ef4444', 40);
 
         // Génération de butin au sol (l'or et les âmes sont crédités au ramassage)
         this.drops.push(new DropItem(e.x, e.y, { type: 'gold', value: e.gold }));
@@ -652,14 +744,19 @@ class Game {
         bossIsVisible = true;
       }
       if (this.dom.bossHud) {
-        this.dom.bossHud.style.display = 'flex';
-        const pct = Math.max(0, (bossAlive.hp / bossAlive.maxHp) * 100);
-        if (this.dom.bossBarFill) this.dom.bossBarFill.style.width = `${pct}%`;
-        if (this.dom.bossName) this.dom.bossName.textContent = bossAlive.name;
+        this.dom.bossHud.style.display = bossIsVisible ? 'flex' : 'none';
+        if (bossIsVisible) {
+          const pct = Math.max(0, (bossAlive.hp / bossAlive.maxHp) * 100);
+          if (this.dom.bossBarFill) this.dom.bossBarFill.style.width = `${pct}%`;
+          if (this.dom.bossName) this.dom.bossName.textContent = bossAlive.name;
+        }
       }
     } else if (this.dom.bossHud) {
       this.dom.bossHud.style.display = 'none';
     }
+
+    // Mise à jour du gestionnaire de particules
+    this.particles.update(dt);
 
     // Musique dynamique
     if (bossIsVisible) {
@@ -878,7 +975,12 @@ class Game {
         const py = ty * TILE_SIZE;
 
         let sprite = null;
-        if (tileType === TILE.FLOOR) sprite = this.sprites['tile_floor.png'];
+        if (tileType === TILE.FLOOR) {
+          const variant = this.dungeon.floorVariants ? this.dungeon.floorVariants[ty]?.[tx] : 0;
+          if (variant === 1) sprite = this.sprites['tile_floor_cracked.png'];
+          else if (variant === 2) sprite = this.sprites['tile_floor_moss.png'];
+          else sprite = this.sprites['tile_floor.png'];
+        }
         else if (tileType === TILE.WALL) sprite = this.sprites['tile_wall.png'];
         else if (tileType === TILE.STAIRS) sprite = this.sprites['tile_stairs.png'];
 
@@ -990,12 +1092,43 @@ class Game {
       }
     }
 
+    // 6b. Ondes de choc actives (anneaux lumineux en expansion)
+    for (const sw of this.shockwaves) {
+      const alpha = Math.max(0, sw.life / sw.maxLife);
+      this.ctx.save();
+      this.ctx.strokeStyle = sw.color;
+      this.ctx.lineWidth = 3.5;
+      this.ctx.globalAlpha = alpha;
+      this.ctx.shadowBlur = 14;
+      this.ctx.shadowColor = sw.color;
+      this.ctx.beginPath();
+      this.ctx.arc(sw.x, sw.y, sw.currentRadius, 0, Math.PI * 2);
+      this.ctx.stroke();
+      this.ctx.restore();
+    }
+
+    // 6c. Système de Particules (impacts, braises, traînées magiques, bulles de poison)
+    this.particles.draw(this.ctx);
+
     // 7. Textes flottants
     for (const dn of this.damageNumbers) {
       dn.draw(this.ctx);
     }
 
     this.ctx.restore();
+
+    // 8. Vignette d'éclairage atmosphérique sombre centrée sur le joueur (style crypte)
+    const screenPx = this.player ? this.player.x - this.camera.x : this.canvas.width / 2;
+    const screenPy = this.player ? this.player.y - this.camera.y : this.canvas.height / 2;
+    const darkVignette = this.ctx.createRadialGradient(
+      screenPx, screenPy, 110,
+      screenPx, screenPy, Math.max(this.canvas.width, this.canvas.height) * 0.78
+    );
+    darkVignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    darkVignette.addColorStop(0.65, 'rgba(6, 5, 12, 0.42)');
+    darkVignette.addColorStop(1, 'rgba(2, 2, 6, 0.85)');
+    this.ctx.fillStyle = darkVignette;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   // --- RENDU DES INTERFACES UI ---
@@ -1096,11 +1229,17 @@ class Game {
       const btnBuy = card.querySelector('.btn-buy');
       btnBuy.addEventListener('click', () => {
         if (this.inventory.gold >= item.price) {
-          this.inventory.gold -= item.price;
-          this.inventory.addItem(item);
-          this.sound.playGoldPickup();
-          items.splice(idx, 1);
-          this.renderShopUI();
+          const added = this.inventory.addItem(item);
+          if (added) {
+            this.inventory.gold -= item.price;
+            this.sound.playGoldPickup();
+            items.splice(idx, 1);
+            this.renderShopUI();
+          } else {
+            if (this.player) {
+              this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 20, 'Inventaire Plein !', '#ef4444', true));
+            }
+          }
         }
       });
 
