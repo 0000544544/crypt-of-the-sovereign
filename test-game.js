@@ -265,6 +265,62 @@ async function runTests() {
       throw new Error('Échec de la sauvegarde ou de l\'amélioration de la Forge');
     }
 
+    // TEST 8b : Vérification des contrôles KeyE (coffre), KeyI (inventaire stable) et frames d'invulnérabilité
+    console.log('[TEST 8b] Vérification de l\'interaction KeyE, de la stabilité de KeyI et des i-frames...');
+    const bugFixesCheck = await evaluate(`
+      (() => {
+        const g = window.gameInstance;
+        const p = g.player;
+
+        // 1. Test i-frames sur takeDamage
+        p.shieldHp = 0;
+        p.hitCooldown = 0;
+        const hpBefore = p.hp;
+        const dmg1 = p.takeDamage(20, g.sound, g.damageNumbers, 'Test');
+        const hpAfterFirst = p.hp;
+        const dmg2 = p.takeDamage(20, g.sound, g.damageNumbers, 'Test spam immédiat');
+        const hpAfterSecond = p.hp;
+        const iframesValid = (dmg1 > 0 && dmg2 === 0 && hpAfterFirst === hpAfterSecond && p.hitCooldown > 0);
+
+        // 2. Test interaction KeyE sur un coffre
+        if (g.dungeon.chests.length > 0) {
+          const chest = g.dungeon.chests[0];
+          p.x = chest.x;
+          p.y = chest.y;
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
+          g.update(0.016);
+          var chestOpened = chest.opened;
+        } else {
+          var chestOpened = true;
+        }
+
+        // 3. Test stabilité de l'inventaire avec KeyI sur plusieurs frames
+        g.showScreen('PLAYING');
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI' }));
+        g.update(0.016);
+        const stateFrame1 = g.state;
+        g.update(0.016);
+        const stateFrame2 = g.state;
+        g.update(0.016);
+        const stateFrame3 = g.state;
+        const inventoryStable = (stateFrame1 === 'INVENTORY' && stateFrame2 === 'INVENTORY' && stateFrame3 === 'INVENTORY');
+
+        g.showScreen('PLAYING');
+
+        return {
+          iframesValid,
+          dmg1,
+          dmg2,
+          chestOpened,
+          inventoryStable
+        };
+      })()
+    `);
+    console.log(' -> Validation des 3 correctifs critiques :', bugFixesCheck);
+    if (!bugFixesCheck.iframesValid) throw new Error('Les frames d\'invulnérabilité de takeDamage ont échoué');
+    if (!bugFixesCheck.chestOpened) throw new Error('L\'interaction KeyE sur le coffre a échoué');
+    if (!bugFixesCheck.inventoryStable) throw new Error('L\'inventaire KeyI clignote ou ne reste pas ouvert sur les frames successives');
+
     // TEST 9 : Test de fluidité 60 FPS
     console.log('[TEST 9] Mesure de fluidité sur 60 images (60 FPS)...');
     const fpsCheck = await evaluate(`

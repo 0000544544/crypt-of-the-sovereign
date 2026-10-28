@@ -198,6 +198,19 @@ class Player {
     this.effectiveSpeed = this.speed + (equipmentStats.speed || 0);
     this.effectiveManaRegen = this.manaRegen + (equipmentStats.manaRegen || 0);
     this.passives = equipmentStats.passives || [];
+
+    // Recalcule maxHp, maxMana et soulBonus
+    const prevMaxHp = this.maxHp;
+    const bonusHp = (this.meta.bonusHp || 0) + (equipmentStats.hp || 0);
+    this.maxHp = this.classDef.stats.maxHp + bonusHp;
+    if (this.hp > this.maxHp) this.hp = this.maxHp;
+    else if (this.maxHp > prevMaxHp) this.hp += (this.maxHp - prevMaxHp);
+
+    const bonusMana = equipmentStats.mana || 0;
+    this.maxMana = this.classDef.stats.maxMana + bonusMana;
+    if (this.mana > this.maxMana) this.mana = this.maxMana;
+
+    this.soulBonus = (this.meta.soulBonus || 0) + (equipmentStats.soulBonus || 0);
   }
 
   update(dt, input, dungeon, soundEngine, projectiles, damageNumbers) {
@@ -248,12 +261,39 @@ class Player {
       soundEngine.playRoll();
 
       // Direction de roulade basée sur le mouvement actuel ou la visée
-      if (input.moveX !== 0 || input.moveY !== 0) {
-        this.rollDirX = input.moveX;
-        this.rollDirY = input.moveY;
+      const rdx = (input.moveX !== 0 || input.moveY !== 0) ? input.moveX : Math.cos(input.aimAngle);
+      const rdy = (input.moveX !== 0 || input.moveY !== 0) ? input.moveY : Math.sin(input.aimAngle);
+
+      if (this.classDef.id === 'mage') {
+        // Vraie téléportation Blink Astral avec onde de choc à l'arrivée
+        const blinkDist = 140;
+        let finalX = this.x;
+        let finalY = this.y;
+        for (let step = 10; step <= blinkDist; step += 10) {
+          const testX = this.x + rdx * step;
+          const testY = this.y + rdy * step;
+          if (dungeon.isWalkable(testX, testY, this.radius)) {
+            finalX = testX;
+            finalY = testY;
+          } else {
+            break;
+          }
+        }
+        this.x = finalX;
+        this.y = finalY;
+        soundEngine.playMagicCast();
+        this.activeShockwave = {
+          x: this.x,
+          y: this.y,
+          radius: 75,
+          damage: 30 * (this.meta.damageMultiplier || 1),
+          freezeDuration: 1.0,
+          hitSet: new Set()
+        };
+        damageNumbers.push(new DamageNumber(this.x, this.y - 20, 'BLINK ASTRAL !', '#4cc9f0', true));
       } else {
-        this.rollDirX = Math.cos(input.aimAngle);
-        this.rollDirY = Math.sin(input.aimAngle);
+        this.rollDirX = rdx;
+        this.rollDirY = rdy;
       }
       return;
     }
@@ -289,9 +329,18 @@ class Player {
     this.swingAngle = angle;
 
     const baseDmg = (this.classDef.primaryAttack.damage + (this.effectiveDamageBonus || 0)) * (this.meta.damageMultiplier || 1);
-    const isCrit = this.nextCritGuaranteed || (Math.random() < (this.effectiveCrit || this.critChance));
-    this.nextCritGuaranteed = false;
-    const finalDmg = isCrit ? Math.round(baseDmg * (this.critMultiplier || 2.0)) : Math.round(baseDmg);
+    let isCrit = false;
+    let critMult = this.critMultiplier || 2.0;
+
+    if (this.invisibleTimer > 0 || this.nextCritGuaranteed) {
+      isCrit = true;
+      critMult = 3.0; // Multiplicateur critique de 300% à la sortie d'invisibilité
+      this.invisibleTimer = 0;
+      this.nextCritGuaranteed = false;
+    } else {
+      isCrit = (Math.random() < (this.effectiveCrit || this.critChance));
+    }
+    const finalDmg = isCrit ? Math.round(baseDmg * critMult) : Math.round(baseDmg);
 
     if (this.classDef.id === 'knight') {
       soundEngine.playSwordSlash();
@@ -301,6 +350,7 @@ class Player {
         arc: this.classDef.primaryAttack.arc,
         range: this.classDef.primaryAttack.range,
         damage: finalDmg,
+        hits: 1,
         isCrit,
         knockback: this.classDef.primaryAttack.knockback,
         hitSet: new Set()
@@ -325,6 +375,7 @@ class Player {
         arc: this.classDef.primaryAttack.arc,
         range: this.classDef.primaryAttack.range,
         damage: finalDmg,
+        hits: 2, // Double dague : frappe 2 fois
         isCrit,
         knockback: 10,
         poison: 10,
@@ -348,6 +399,7 @@ class Player {
         y: this.y,
         radius: this.classDef.specialSkill.radius,
         damage: this.classDef.specialSkill.damage * (this.meta.damageMultiplier || 1),
+        freezeDuration: 1.5, // Étourdissement 1.5s
         hitSet: new Set()
       };
     } else if (this.classDef.id === 'mage') {
@@ -363,7 +415,7 @@ class Player {
         hitSet: new Set()
       };
     } else if (this.classDef.id === 'rogue') {
-      // Voile d'Ombre (Invisibilité + Critique Garanti)
+      // Voile d'Ombre (Invisibilité + Critique Garanti 300%)
       soundEngine.playDaggerSlash();
       this.invisibleTimer = this.classDef.specialSkill.duration;
       this.nextCritGuaranteed = true;
@@ -372,7 +424,7 @@ class Player {
   }
 
   takeDamage(amount, soundEngine, damageNumbers, attackerName = '') {
-    if (this.isRolling || this.hp <= 0) return 0;
+    if (this.hitCooldown > 0 || this.isRolling || this.hp <= 0) return 0;
 
     // Absorption par le bouclier
     let actualDamage = amount;
@@ -381,6 +433,7 @@ class Player {
         this.shieldHp -= actualDamage;
         damageNumbers.push(new DamageNumber(this.x, this.y - 15, `-${actualDamage} (BOUCLIER)`, '#00f0ff'));
         soundEngine.playHit();
+        this.hitCooldown = 0.5;
         return 0;
       } else {
         actualDamage -= this.shieldHp;
@@ -391,8 +444,19 @@ class Player {
     // Réduction par l'armure
     const effectiveArmor = this.effectiveArmor || this.armor;
     const mitigated = Math.max(1, Math.round(actualDamage * (1 - effectiveArmor)));
+
+    // Passif Légendaire : Égide Céleste (1 fois par étage)
+    if (this.hp - mitigated <= 0 && this.passives && this.passives.some(p => p.includes('Égide Céleste')) && !this.aegisUsedThisFloor) {
+      this.aegisUsedThisFloor = true;
+      this.hp = 1;
+      this.hitCooldown = 1.0;
+      soundEngine.playLevelUp();
+      damageNumbers.push(new DamageNumber(this.x, this.y - 20, 'ÉGIDE CÉLESTE (SURVIE) !', '#fbbf24', true));
+      return 0;
+    }
+
     this.hp -= mitigated;
-    this.hitCooldown = 0.2;
+    this.hitCooldown = 0.5;
     soundEngine.playHit();
     damageNumbers.push(new DamageNumber(this.x, this.y - 15, `-${mitigated}`, '#ef4444', true));
 
@@ -575,6 +639,15 @@ class Enemy {
       if (Math.random() < 0.15) {
         damageNumbers.push(new DamageNumber(this.x, this.y - 10, `${Math.round(this.poisonDps)}`, '#10b981'));
       }
+      if (this.hp <= 0) {
+        soundEngine.playEnemyDeath();
+        return;
+      }
+    }
+
+    // Si le joueur est invisible (Voile d'Ombre de l'Assassin), les ennemis ne le ciblent pas
+    if (player.invisibleTimer > 0) {
+      return;
     }
 
     if (this.hitCooldown > 0) this.hitCooldown -= dt;
@@ -630,6 +703,21 @@ class Enemy {
         }));
       }
     } else if (this.type === 'mage') {
+      // Déplacement d'approche et recul tactique
+      if (dist < 160) {
+        // Recule
+        const mx = -Math.cos(angle) * this.speed * 60 * dt;
+        const my = -Math.sin(angle) * this.speed * 60 * dt;
+        if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
+        if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
+      } else if (dist > 260 && dist < 420) {
+        // S'approche
+        const mx = Math.cos(angle) * this.speed * 60 * dt;
+        const my = Math.sin(angle) * this.speed * 60 * dt;
+        if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
+        if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
+      }
+
       // Tire des crânes d'ombre téléguidés
       if (this.shootCooldown <= 0 && dist < 400) {
         this.shootCooldown = 2.4;

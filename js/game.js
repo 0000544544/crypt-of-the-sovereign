@@ -335,6 +335,10 @@ class Game {
   loadFloor(floorNumber) {
     this.currentFloorNumber = floorNumber;
     this.runStats.floor = floorNumber;
+    this.roomKills = 0;
+    if (this.player) {
+      this.player.aegisUsedThisFloor = false;
+    }
     this.dungeon = new DungeonFloor(floorNumber, 60, 60);
 
     // Positionner le joueur dans la salle de départ
@@ -418,6 +422,8 @@ class Game {
   }
 
   update(dt) {
+    if (this.invFullCooldown > 0) this.invFullCooldown -= dt;
+
     // Raccourcis universels
     if (this.input.justPressed.pause) {
       if (this.state === 'PLAYING') this.showScreen('PAUSE');
@@ -429,7 +435,10 @@ class Game {
       else this.closeModal();
     }
 
-    if (this.state !== 'PLAYING') return;
+    if (this.state !== 'PLAYING') {
+      this.input.clearJustPressed();
+      return;
+    }
 
     // 1. Mise à jour de l'Input avec position du joueur sur l'écran
     const screenPx = this.player.x - this.camera.x;
@@ -450,6 +459,7 @@ class Game {
     // Vérification de la mort du joueur
     if (this.player.hp <= 0) {
       this.endRun(false, 'Vos blessures vous ont été fatales.');
+      this.input.clearJustPressed();
       return;
     }
 
@@ -469,6 +479,15 @@ class Game {
     // 5. Gestion des attaques de mêlée du joueur
     if (this.player.activeMeleeHitbox) {
       const hb = this.player.activeMeleeHitbox;
+      const numHits = hb.hits || 1;
+      let finalDamage = hb.damage;
+
+      // Passif Tempête d'Âmes : +25% dégâts par ennemi tué dans la salle
+      if (this.player.passives && this.player.passives.some(p => p.includes("Tempête d'Âmes"))) {
+        const soulStormBonus = 1 + Math.min(2.0, (this.roomKills || 0) * 0.25);
+        finalDamage = Math.round(finalDamage * soulStormBonus);
+      }
+
       for (const e of this.enemies) {
         if (!hb.hitSet.has(e)) {
           const dist = Math.hypot(e.x - this.player.x, e.y - this.player.y);
@@ -480,12 +499,29 @@ class Game {
 
             if (Math.abs(diff) <= hb.arc / 2) {
               hb.hitSet.add(e);
-              const dealt = e.takeDamage(hb.damage, this.sound, this.damageNumbers, hb.isCrit);
-              this.runStats.damageDealt += dealt;
+              let totalDealt = 0;
+              for (let h = 0; h < numHits; h++) {
+                totalDealt += e.takeDamage(finalDamage, this.sound, this.damageNumbers, hb.isCrit);
+              }
+              this.runStats.damageDealt += totalDealt;
 
-              // Répulsion
-              e.x += Math.cos(angleToEnemy) * hb.knockback;
-              e.y += Math.sin(angleToEnemy) * hb.knockback;
+              // Passif Vampirisme (8% de soins)
+              if (this.player.passives && this.player.passives.some(p => p.includes('Vampirisme'))) {
+                this.player.heal(Math.max(1, Math.round(totalDealt * 0.08)));
+              }
+
+              // Passif Exécution (<20% PV)
+              if (this.player.passives && this.player.passives.some(p => p.includes('Exécution')) && e.hp > 0 && e.hp < e.maxHp * 0.2 && !e.isBoss) {
+                e.hp = 0;
+                this.sound.playEnemyDeath();
+                this.damageNumbers.push(new DamageNumber(e.x, e.y - 20, 'EXÉCUTION !', '#ff0033', true));
+              }
+
+              // Knockback dans les murs (vérification isWalkable)
+              const nx = e.x + Math.cos(angleToEnemy) * hb.knockback;
+              const ny = e.y + Math.sin(angleToEnemy) * hb.knockback;
+              if (this.dungeon.isWalkable(nx, e.y, e.radius)) e.x = nx;
+              if (this.dungeon.isWalkable(e.x, ny, e.radius)) e.y = ny;
 
               if (hb.poison) {
                 e.poisonTimer = 3.0;
@@ -534,8 +570,25 @@ class Game {
             const dist = Math.hypot(e.x - p.x, e.y - p.y);
             if (dist < e.radius + p.radius) {
               p.hitList.add(e);
-              const dealt = e.takeDamage(p.damage, this.sound, this.damageNumbers);
+              let pDamage = p.damage;
+              if (this.player.passives && this.player.passives.some(pass => pass.includes("Tempête d'Âmes"))) {
+                pDamage = Math.round(pDamage * (1 + Math.min(2.0, (this.roomKills || 0) * 0.25)));
+              }
+              const dealt = e.takeDamage(pDamage, this.sound, this.damageNumbers);
               this.runStats.damageDealt += dealt;
+
+              // Passif Vampirisme
+              if (this.player.passives && this.player.passives.some(pass => pass.includes('Vampirisme'))) {
+                this.player.heal(Math.max(1, Math.round(dealt * 0.08)));
+              }
+
+              // Passif Exécution
+              if (this.player.passives && this.player.passives.some(pass => pass.includes('Exécution')) && e.hp > 0 && e.hp < e.maxHp * 0.2 && !e.isBoss) {
+                e.hp = 0;
+                this.sound.playEnemyDeath();
+                this.damageNumbers.push(new DamageNumber(e.x, e.y - 20, 'EXÉCUTION !', '#ff0033', true));
+              }
+
               p.pierce--;
               if (p.pierce <= 0) {
                 this.projectiles.splice(i, 1);
@@ -566,13 +619,11 @@ class Game {
 
       if (e.hp <= 0) {
         this.runStats.kills++;
+        this.roomKills = (this.roomKills || 0) + 1;
         const soulRate = 1 + (this.storage.getSanctuaryBonuses().soulBonus || 0);
         const soulsGained = Math.round(e.xpSouls * soulRate);
-        this.runStats.soulsEarned += soulsGained;
-        this.inventory.souls += soulsGained;
-        this.inventory.gold += e.gold;
 
-        // Génération de butin au sol
+        // Génération de butin au sol (l'or et les âmes sont crédités au ramassage)
         this.drops.push(new DropItem(e.x, e.y, { type: 'gold', value: e.gold }));
         this.drops.push(new DropItem(e.x + 6, e.y, { type: 'soul', value: soulsGained }));
 
@@ -592,14 +643,31 @@ class Game {
       }
     }
 
-    // Gestion de la barre du Boss dans le HUD
-    if (bossAlive && this.dom.bossHud) {
-      this.dom.bossHud.style.display = 'flex';
-      const pct = Math.max(0, (bossAlive.hp / bossAlive.maxHp) * 100);
-      if (this.dom.bossBarFill) this.dom.bossBarFill.style.width = `${pct}%`;
-      if (this.dom.bossName) this.dom.bossName.textContent = bossAlive.name;
+    // Gestion de la barre du Boss dans le HUD & Musique dynamique
+    let bossIsVisible = false;
+    if (bossAlive) {
+      const btx = Math.floor(bossAlive.x / TILE_SIZE);
+      const bty = Math.floor(bossAlive.y / TILE_SIZE);
+      if (this.dungeon.visible[bty]?.[btx] === 1) {
+        bossIsVisible = true;
+      }
+      if (this.dom.bossHud) {
+        this.dom.bossHud.style.display = 'flex';
+        const pct = Math.max(0, (bossAlive.hp / bossAlive.maxHp) * 100);
+        if (this.dom.bossBarFill) this.dom.bossBarFill.style.width = `${pct}%`;
+        if (this.dom.bossName) this.dom.bossName.textContent = bossAlive.name;
+      }
     } else if (this.dom.bossHud) {
       this.dom.bossHud.style.display = 'none';
+    }
+
+    // Musique dynamique
+    if (bossIsVisible) {
+      this.sound.playMusic('boss');
+    } else if (this.enemies.some(e => e.hp > 0 && Math.hypot(e.x - this.player.x, e.y - this.player.y) < 260)) {
+      this.sound.playMusic('combat');
+    } else {
+      this.sound.playMusic('explore');
     }
 
     // 9. Objets au sol et ramassage
@@ -610,17 +678,31 @@ class Game {
       const dist = Math.hypot(this.player.x - drop.x, this.player.y - drop.y);
       if (dist < this.player.radius + drop.radius) {
         if (drop.data.type === 'gold') {
+          this.inventory.gold += drop.data.value;
+          this.runStats.goldEarned += drop.data.value;
           this.sound.playGoldPickup();
           this.damageNumbers.push(new DamageNumber(drop.x, drop.y, `+${drop.data.value} Or`, '#ffb703'));
+          this.drops.splice(i, 1);
         } else if (drop.data.type === 'soul') {
+          this.inventory.souls += drop.data.value;
+          this.runStats.soulsEarned += drop.data.value;
           this.sound.playSoulPickup();
           this.damageNumbers.push(new DamageNumber(drop.x, drop.y, `+${drop.data.value} Âmes`, '#b5179e'));
+          this.drops.splice(i, 1);
         } else if (drop.data.item) {
-          this.inventory.addItem(drop.data.item);
-          this.sound.playChestOpen();
-          this.damageNumbers.push(new DamageNumber(drop.x, drop.y, `Trouvé : ${drop.data.item.name}`, '#38bdf8', true));
+          const added = this.inventory.addItem(drop.data.item);
+          if (added) {
+            this.sound.playChestOpen();
+            this.damageNumbers.push(new DamageNumber(drop.x, drop.y, `Trouvé : ${drop.data.item.name}`, '#38bdf8', true));
+            this.drops.splice(i, 1);
+          } else {
+            // Sac plein : ne supprime pas l'objet
+            if (!this.invFullCooldown || this.invFullCooldown <= 0) {
+              this.invFullCooldown = 1.5;
+              this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 20, 'Inventaire Plein !', '#ef4444', true));
+            }
+          }
         }
-        this.drops.splice(i, 1);
       }
     }
 
@@ -666,7 +748,7 @@ class Game {
       }
     }
 
-    // Escaliers vers l'étage suivant
+    // Escaliers vers l'étage suivant ou Victoire
     if (this.dungeon.stairs) {
       const st = this.dungeon.stairs;
       const dist = Math.hypot(this.player.x - st.x, this.player.y - st.y);
@@ -674,9 +756,13 @@ class Game {
         if (st.locked) {
           promptText = 'Scellé par le Sceau du Souverain (Vainquez le Boss)';
         } else {
-          promptText = '[E] Descendre à l\'Étage Suivant';
+          promptText = this.currentFloorNumber >= 3 ? '[E] Purifier la Crypte (VICTOIRE)' : '[E] Descendre à l\'Étage Suivant';
           if (this.input.justPressed.interact) {
-            this.nextFloor();
+            if (this.currentFloorNumber >= 3) {
+              this.endRun(true, 'Le Souverain Déchu a été terrassé ! La crypte est purifiée !');
+            } else {
+              this.nextFloor();
+            }
           }
         }
       }
@@ -700,6 +786,9 @@ class Game {
 
     // 13. Mise à jour de l'ATH
     this.updateHUD();
+
+    // 14. Nettoyage des fronts montants d'input en fin de frame
+    this.input.clearJustPressed();
   }
 
   updateHUD() {
@@ -809,47 +898,96 @@ class Game {
       }
     }
 
-    // 2. Pièges, Coffres, Flambeaux et Marchand
+    // 2. Pièges, Coffres, Flambeaux et Marchand (uniquement si tuile découverte)
+    for (const torch of this.dungeon.torches) {
+      const ttx = Math.floor(torch.x / TILE_SIZE);
+      const tty = Math.floor(torch.y / TILE_SIZE);
+      if (this.dungeon.discovered[tty]?.[ttx] === 1) {
+        const sprite = this.sprites['tile_torch.png'];
+        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+          this.ctx.drawImage(sprite, torch.x, torch.y, TILE_SIZE, TILE_SIZE);
+        }
+        if (this.dungeon.visible[tty]?.[ttx] === 1) {
+          const pulse = 0.85 + Math.sin(Date.now() * 0.008 + torch.id) * 0.15;
+          const grad = this.ctx.createRadialGradient(torch.x + 16, torch.y + 16, 4, torch.x + 16, torch.y + 16, 54 * pulse);
+          grad.addColorStop(0, 'rgba(255, 183, 3, 0.28)');
+          grad.addColorStop(1, 'rgba(255, 183, 3, 0)');
+          this.ctx.fillStyle = grad;
+          this.ctx.beginPath();
+          this.ctx.arc(torch.x + 16, torch.y + 16, 54 * pulse, 0, Math.PI * 2);
+          this.ctx.fill();
+        }
+      }
+    }
+
     for (const trap of this.dungeon.traps) {
-      const sprite = this.sprites['tile_spikes.png'];
-      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-        this.ctx.drawImage(sprite, trap.x - 16, trap.y - 16, 32, 32);
+      const tx = Math.floor(trap.x / TILE_SIZE);
+      const ty = Math.floor(trap.y / TILE_SIZE);
+      if (this.dungeon.discovered[ty]?.[tx] === 1) {
+        const sprite = this.sprites['tile_spikes.png'];
+        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+          this.ctx.drawImage(sprite, trap.x - 16, trap.y - 16, 32, 32);
+        }
       }
     }
 
     for (const chest of this.dungeon.chests) {
-      const sprite = chest.opened ? this.sprites['tile_chest_open.png'] : this.sprites['tile_chest_closed.png'];
-      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-        this.ctx.drawImage(sprite, chest.x - 16, chest.y - 16, 32, 32);
+      const tx = Math.floor(chest.x / TILE_SIZE);
+      const ty = Math.floor(chest.y / TILE_SIZE);
+      if (this.dungeon.discovered[ty]?.[tx] === 1) {
+        const sprite = chest.opened ? this.sprites['tile_chest_open.png'] : this.sprites['tile_chest_closed.png'];
+        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+          this.ctx.drawImage(sprite, chest.x - 16, chest.y - 16, 32, 32);
+        }
       }
     }
 
     if (this.dungeon.shopkeeper) {
       const sk = this.dungeon.shopkeeper;
-      const sprite = this.sprites['tile_shopkeeper.png'];
-      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-        this.ctx.drawImage(sprite, sk.x - 16, sk.y - 16, 32, 32);
+      const tx = Math.floor(sk.x / TILE_SIZE);
+      const ty = Math.floor(sk.y / TILE_SIZE);
+      if (this.dungeon.discovered[ty]?.[tx] === 1) {
+        const sprite = this.sprites['tile_shopkeeper.png'];
+        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+          this.ctx.drawImage(sprite, sk.x - 16, sk.y - 16, 32, 32);
+        }
       }
     }
 
-    // 3. Objets au sol
+    // 3. Objets au sol (visibles ou découverts)
     for (const drop of this.drops) {
-      drop.draw(this.ctx, this.sprites);
+      const dtx = Math.floor(drop.x / TILE_SIZE);
+      const dty = Math.floor(drop.y / TILE_SIZE);
+      if (this.dungeon.visible[dty]?.[dtx] === 1 || this.dungeon.discovered[dty]?.[dtx] === 1) {
+        drop.draw(this.ctx, this.sprites);
+      }
     }
 
-    // 4. Ennemis
+    // 4. Ennemis (uniquement si tuile visible)
     for (const e of this.enemies) {
-      e.draw(this.ctx, this.sprites);
+      const etx = Math.floor(e.x / TILE_SIZE);
+      const ety = Math.floor(e.y / TILE_SIZE);
+      if (this.dungeon.visible[ety]?.[etx] === 1) {
+        e.draw(this.ctx, this.sprites);
+      }
     }
 
-    // 5. Joueur
+    // 5. Joueur (toujours visible)
     if (this.player) {
       this.player.draw(this.ctx, this.sprites);
     }
 
-    // 6. Projectiles
+    // 6. Projectiles (projectiles ennemis uniquement si tuile visible)
     for (const p of this.projectiles) {
-      p.draw(this.ctx);
+      if (p.isPlayer) {
+        p.draw(this.ctx);
+      } else {
+        const ptx = Math.floor(p.x / TILE_SIZE);
+        const pty = Math.floor(p.y / TILE_SIZE);
+        if (this.dungeon.visible[pty]?.[ptx] === 1) {
+          p.draw(this.ctx);
+        }
+      }
     }
 
     // 7. Textes flottants

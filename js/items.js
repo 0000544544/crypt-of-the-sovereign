@@ -309,16 +309,17 @@ class InventoryManager {
   }
 
   usePotion(type, player, soundEngine) {
+    const potencyMult = 1 + (player?.meta?.alchemist?.potency || 0);
     if (type === 'health') {
       if (this.potions.health <= 0 || player.hp >= player.maxHp) return false;
       this.potions.health--;
-      player.heal(65);
+      player.heal(Math.round(65 * potencyMult));
       soundEngine?.playPotion();
       return true;
     } else if (type === 'mana') {
       if (this.potions.mana <= 0 || player.mana >= player.maxMana) return false;
       this.potions.mana--;
-      player.restoreMana(75);
+      player.restoreMana(Math.round(75 * potencyMult));
       soundEngine?.playPotion();
       return true;
     }

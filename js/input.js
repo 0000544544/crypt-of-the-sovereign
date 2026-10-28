@@ -77,6 +77,9 @@ class InputManager {
 
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
+      if (e.code === 'KeyJ') this.actions.attack = false;
+      if (e.code === 'KeyK') this.actions.skill = false;
+      if (e.code === 'Space' || e.code === 'ShiftLeft') this.actions.roll = false;
     });
 
     // Souris
@@ -127,13 +130,14 @@ class InputManager {
     this.justPressed[actionName] = true;
   }
 
-  update(playerScreenX, playerScreenY) {
-    // 1. Réinitialiser les fronts montants
+  clearJustPressed() {
     for (const key in this.justPressed) {
       this.justPressed[key] = false;
     }
+  }
 
-    // 2. Clavier
+  update(playerScreenX, playerScreenY) {
+    // 1. Clavier
     let kx = 0;
     let ky = 0;
     if (this.keys.has('KeyW') || this.keys.has('KeyZ') || this.keys.has('ArrowUp')) ky -= 1;
