@@ -754,197 +754,202 @@ class Player {
 
   draw(ctx, spriteSheet) {
     ctx.save();
-
-    const spriteName = this.classDef.sprite.replace('assets/sprites/', '');
-    const sprite = spriteSheet[spriteName];
     const walkCycle = this.walkTimer || 0;
+    const bob = (this.isMoving && !this.isRolling) ? Math.abs(Math.sin(walkCycle)) * 2.8 : 0;
+    const tilt = (this.isMoving && !this.isRolling) ? (this.facingLeft ? -0.07 : 0.07) : 0;
 
-    // Traînée d'images rémanentes (afterimages) pendant la roulade ou l'invisibilité
+    // 1. Afterimages (Roulade / Voile d'ombre)
     for (const ai of this.afterimages) {
-      const alpha = Math.max(0, ai.life / ai.maxLife);
+      const alpha = Math.max(0, ai.life / ai.maxLife) * 0.35;
       ctx.save();
-      ctx.globalAlpha = alpha * 0.4;
-      ctx.translate(ai.x, ai.y);
-      if (ai.facingLeft) ctx.scale(-1, 1);
-      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-        ctx.drawImage(sprite, -16, -16, 32, 32);
-      }
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = this.classDef.color;
+      ctx.beginPath();
+      ctx.arc(ai.x, ai.y - 4, 11, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
 
-    // 1. Rendu ombre portée 2.5D au sol
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
+    // 2. Ombre portée 2.5D au sol
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y + 12, 11, 4.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x, this.y + 13, 12, 5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Rebond de marche (bobbing) et inclinaison dynamique
-    const bob = (this.isMoving && !this.isRolling) ? Math.abs(Math.sin(walkCycle)) * 2.5 : 0;
-    const tilt = (this.isMoving && !this.isRolling) ? (this.facingLeft ? -0.06 : 0.06) : 0;
+    if (this.hitCooldown > 0) ctx.filter = 'brightness(2.2)';
+    if (this.invisibleTimer > 0) ctx.globalAlpha = 0.42;
 
-    // Clignotement de dégât ou invisibilité
-    if (this.hitCooldown > 0) {
-      ctx.filter = 'brightness(2.0)';
-    }
-    if (this.invisibleTimer > 0) {
-      ctx.globalAlpha = 0.45;
-    }
-
-    // 2. Rendu de la Cape ondoyante en arrière-plan
+    // 3. Cape 2.5D dynamique en arrière-plan
     ctx.save();
     ctx.translate(this.x, this.y - bob);
-    const capeWiggle = Math.sin(walkCycle * 0.8 + Date.now() * 0.006) * (this.isMoving ? 5 : 2);
-    const capeColor = this.classDef.id === 'knight' ? '#991b1b' : (this.classDef.id === 'mage' ? '#4c1d95' : '#064e3b');
-    ctx.fillStyle = capeColor;
+    const wave = Math.sin(walkCycle * 0.9 + Date.now() * 0.006) * (this.isMoving ? 5 : 2);
+    const capeGrad = ctx.createLinearGradient(0, -8, 0, 14);
+    if (this.classDef.id === 'knight') {
+      capeGrad.addColorStop(0, '#991b1b'); capeGrad.addColorStop(1, '#450a0a');
+    } else if (this.classDef.id === 'mage') {
+      capeGrad.addColorStop(0, '#6d28d9'); capeGrad.addColorStop(1, '#2e1065');
+    } else {
+      capeGrad.addColorStop(0, '#065f46'); capeGrad.addColorStop(1, '#022c22');
+    }
+    ctx.fillStyle = capeGrad;
+    ctx.strokeStyle = '#090714';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(-5, -4);
-    ctx.lineTo(5, -4);
-    ctx.lineTo((this.facingLeft ? 7 : -7) + capeWiggle, 13);
-    ctx.lineTo((this.facingLeft ? -3 : -3) + capeWiggle * 0.6, 14);
+    ctx.moveTo(-7, -6);
+    ctx.lineTo(7, -6);
+    ctx.lineTo((this.facingLeft ? 10 : -10) + wave, 12);
+    ctx.lineTo((this.facingLeft ? -4 : 4) + wave * 0.5, 13);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
     ctx.restore();
 
-    // 3. Rendu du Personnage (Corps & Jambes articulées)
+    // 4. Corps 2.5D articulé (Jambes, Torse blindé, Épaulières, Tête) — SANS l'ancien PNG carré
     ctx.save();
     ctx.translate(this.x, this.y - bob);
-    if (this.facingLeft) {
-      ctx.scale(-1, 1);
-    }
+    if (this.facingLeft) ctx.scale(-1, 1);
     ctx.rotate(tilt);
 
-    // Jambes / Bottes animées en alternance de marche 2.5D
-    const legOffset1 = (this.isMoving && !this.isRolling) ? Math.sin(walkCycle) * 4 : 0;
-    const legOffset2 = (this.isMoving && !this.isRolling) ? -Math.sin(walkCycle) * 4 : 0;
-    const legLift1 = (this.isMoving && !this.isRolling) ? Math.max(0, -Math.cos(walkCycle) * 2) : 0;
-    const legLift2 = (this.isMoving && !this.isRolling) ? Math.max(0, Math.cos(walkCycle) * 2) : 0;
-
-    ctx.fillStyle = '#0f172a'; // Bottes d'armure sombres
-    ctx.fillRect(-7, 8 + legOffset1 - legLift1, 4, 5);
-    ctx.fillRect(3, 8 + legOffset2 - legLift2, 4, 5);
-
-    // Corps / Sprite de base
-    if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-      ctx.drawImage(sprite, -16, -16, 32, 32);
-    } else {
-      ctx.fillStyle = this.classDef.color;
-      ctx.fillRect(-12, -12, 24, 24);
-    }
-
-    // Visière / Regard qui suit la visée de la souris
-    const aimAng = this.aimAngle || 0;
-    const eyeRelX = (this.facingLeft ? -Math.cos(aimAng) : Math.cos(aimAng)) * 2.5;
-    const eyeRelY = Math.sin(aimAng) * 2;
-    const eyeColor = this.classDef.id === 'knight' ? '#00f0ff' : (this.classDef.id === 'mage' ? '#c084fc' : '#06d6a0');
-    ctx.fillStyle = eyeColor;
-    ctx.fillRect(-2 + eyeRelX, -8 + eyeRelY, 3, 2);
-
-    ctx.restore();
-
-    // 4. Arme Tenue en Main & Pivotée en Temps Réel à 360° (Grande Épée, Sceptre ou Dagues)
-    ctx.save();
-    const handX = this.x + (this.facingLeft ? -7 : 7);
-    const handY = this.y + 2 - bob;
-    ctx.translate(handX, handY);
-
-    let weaponAngle = this.aimAngle || 0;
-    if (this.swingAnim > 0) {
-      const swingProgress = 1 - this.swingAnim;
-      const swingSweep = (swingProgress - 0.5) * 2.2;
-      weaponAngle += (this.facingLeft ? -swingSweep : swingSweep);
-    }
-    ctx.rotate(weaponAngle);
+    const leg1 = (this.isMoving && !this.isRolling) ? Math.sin(walkCycle) * 4.5 : 0;
+    const leg2 = -leg1;
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#090714';
+    ctx.lineWidth = 1.5;
+    // Bottes articulées
+    ctx.fillRect(-6, 6 + leg1, 4.5, 6);
+    ctx.strokeRect(-6, 6 + leg1, 4.5, 6);
+    ctx.fillRect(1.5, 6 + leg2, 4.5, 6);
+    ctx.strokeRect(1.5, 6 + leg2, 4.5, 6);
 
     if (this.classDef.id === 'knight') {
-      // Grande Épée Runique
-      // Garde d'or
-      ctx.fillStyle = '#d97706';
-      ctx.fillRect(3, -4, 3, 8);
-      // Lame en acier trempé
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillRect(6, -2.5, 20, 5);
-      // Pointe effilée
+      // Torse en armure de plates bombée
+      const armorGrad = ctx.createLinearGradient(-8, -6, 8, 8);
+      armorGrad.addColorStop(0, '#e2e8f0');
+      armorGrad.addColorStop(0.5, '#94a3b8');
+      armorGrad.addColorStop(1, '#334155');
+      ctx.fillStyle = armorGrad;
       ctx.beginPath();
-      ctx.moveTo(26, -2.5);
-      ctx.lineTo(30, 0);
-      ctx.lineTo(26, 2.5);
-      ctx.closePath();
+      ctx.roundRect(-8, -5, 16, 13, 4);
       ctx.fill();
-      // Gravure runique luminescente bleu cyan
-      ctx.fillStyle = '#00f0ff';
-      ctx.shadowBlur = 6;
-      ctx.shadowColor = '#00f0ff';
-      ctx.fillRect(9, -0.75, 14, 1.5);
-    } else if (this.classDef.id === 'mage') {
-      // Sceptre Astral
-      // Hampe de bois sombre
-      ctx.fillStyle = '#582f0e';
-      ctx.fillRect(2, -1.5, 22, 3);
-      // Croissant d'or au sommet
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(24, 0, 5, -Math.PI * 0.5, Math.PI * 0.5);
       ctx.stroke();
-      // Cristal d'Éther flottant au cœur du sceptre
-      ctx.fillStyle = '#c084fc';
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = '#c084fc';
+      // Tabard bleu et ceinture dorée
+      ctx.fillStyle = '#1d4ed8';
+      ctx.fillRect(-3.5, -1, 7, 9);
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(-7, 3, 14, 2);
+      // Épaulières 2.5D
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath(); ctx.arc(-8, -3, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(8, -3, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      // Heaume de chevalier + cimier doré + visière cyan
+      ctx.fillStyle = '#f59e0b';
       ctx.beginPath();
-      ctx.arc(26, 0, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (this.classDef.id === 'rogue') {
-      // Doubles Dagues Empoisonnées
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(3, -1.5, 13, 3);
-      ctx.fillStyle = '#06d6a0'; // Lame empoisonnée verte
-      ctx.shadowBlur = 6;
-      ctx.shadowColor = '#06d6a0';
+      ctx.moveTo(-2, -18); ctx.lineTo(4, -21); ctx.lineTo(2, -13); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = armorGrad;
       ctx.beginPath();
-      ctx.moveTo(16, -1.5);
-      ctx.lineTo(21, 0);
-      ctx.lineTo(16, 1.5);
-      ctx.closePath();
-      ctx.fill();
+      ctx.roundRect(-7, -16, 14, 12, 5);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#00f0ff';
+      ctx.shadowBlur = 8; ctx.shadowColor = '#00f0ff';
+      ctx.fillRect(-2, -11, 8, 2.5);
+      ctx.shadowBlur = 0;
+    } else if (this.classDef.id === 'mage') {
+      // Tunique astrale
+      const robeGrad = ctx.createLinearGradient(-8, -6, 8, 10);
+      robeGrad.addColorStop(0, '#7c3aed'); robeGrad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = robeGrad;
+      ctx.beginPath();
+      ctx.moveTo(-6, -5); ctx.lineTo(6, -5); ctx.lineTo(9, 10); ctx.lineTo(-9, 10); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(-2, -5, 4, 14);
+      // Capuche mystique & yeux brillants
+      ctx.fillStyle = '#3b0764';
+      ctx.beginPath();
+      ctx.arc(0, -10, 7.5, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#090514';
+      ctx.beginPath(); ctx.arc(1.5, -10, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowBlur = 8; ctx.shadowColor = '#38bdf8';
+      ctx.fillRect(0, -11, 2.5, 2); ctx.fillRect(3.5, -11, 2.5, 2);
+      ctx.shadowBlur = 0;
+    } else {
+      // Armure de cuir sombre d'Assassin
+      ctx.fillStyle = '#1f2937';
+      ctx.beginPath(); ctx.roundRect(-7, -5, 14, 12, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#10b981';
+      ctx.fillRect(-6, -2, 12, 2);
+      // Capuche & masque noir + yeux émeraude
+      ctx.fillStyle = '#111827';
+      ctx.beginPath(); ctx.arc(0, -10, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#10b981';
+      ctx.shadowBlur = 8; ctx.shadowColor = '#10b981';
+      ctx.fillRect(0, -11, 2.5, 2); ctx.fillRect(3.5, -11, 2.5, 2);
+      ctx.shadowBlur = 0;
     }
     ctx.restore();
 
-    // 5. Traînée lumineuse d'attaque lors du coup
+    // 5. Arme unique articulée à 360° dans la main
+    ctx.save();
+    const handX = this.x + (this.facingLeft ? -6 : 6);
+    const handY = this.y + 1 - bob;
+    ctx.translate(handX, handY);
+    let weaponAngle = this.aimAngle || 0;
+    if (this.swingAnim > 0) {
+      const sweep = ((1 - this.swingAnim) - 0.5) * 2.3;
+      weaponAngle += (this.facingLeft ? -sweep : sweep);
+    }
+    ctx.rotate(weaponAngle);
+    ctx.strokeStyle = '#090714';
+    ctx.lineWidth = 1.2;
+    if (this.classDef.id === 'knight') {
+      ctx.fillStyle = '#78350f'; ctx.fillRect(-2, -1.5, 6, 3);
+      ctx.fillStyle = '#f59e0b'; ctx.fillRect(3, -5, 3, 10); ctx.strokeRect(3, -5, 3, 10);
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.moveTo(6, -3); ctx.lineTo(25, -2); ctx.lineTo(30, 0); ctx.lineTo(25, 2); ctx.lineTo(6, 3);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillRect(8, -0.8, 15, 1.6);
+    } else if (this.classDef.id === 'mage') {
+      ctx.fillStyle = '#78350f'; ctx.fillRect(0, -1.5, 22, 3); ctx.strokeRect(0, -1.5, 22, 3);
+      ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(24, 0, 5, -Math.PI * 0.6, Math.PI * 0.6); ctx.stroke();
+      ctx.fillStyle = '#38bdf8'; ctx.shadowBlur = 10; ctx.shadowColor = '#38bdf8';
+      ctx.beginPath(); ctx.arc(25, 0, 3.5, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillStyle = '#f59e0b'; ctx.fillRect(2, -3, 2, 6);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath(); ctx.moveTo(4, -2); ctx.lineTo(19, 0); ctx.lineTo(4, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#10b981'; ctx.fillRect(6, -0.8, 10, 1.6);
+    }
+    ctx.restore();
+
+    // 6. Arc de coupe lumineux (Slash VFX)
     if (this.swingAnim > 0) {
       ctx.save();
-      const arcRadius = 40;
-      const grad = ctx.createLinearGradient(
-        this.x + Math.cos(this.swingAngle - 0.75) * arcRadius,
-        this.y + Math.sin(this.swingAngle - 0.75) * arcRadius,
-        this.x + Math.cos(this.swingAngle + 0.75) * arcRadius,
-        this.y + Math.sin(this.swingAngle + 0.75) * arcRadius
-      );
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
-      grad.addColorStop(0.5, this.classDef.color);
-      grad.addColorStop(1, '#ffffff');
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = 4.5;
+      const r = 40;
+      ctx.strokeStyle = this.classDef.color;
+      ctx.lineWidth = 5 * this.swingAnim;
       ctx.shadowBlur = 14;
       ctx.shadowColor = this.classDef.color;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, arcRadius, this.swingAngle - 0.8, this.swingAngle + 0.8);
+      ctx.arc(this.x, this.y, r, this.swingAngle - 0.85, this.swingAngle + 0.85);
       ctx.stroke();
       ctx.restore();
     }
 
-    // 6. Bouclier actif
+    // 7. Dôme de Bouclier actif
     if (this.shieldHp > 0) {
       ctx.save();
       ctx.strokeStyle = '#00f0ff';
-      ctx.lineWidth = 2.5;
-      ctx.shadowBlur = 14;
-      ctx.shadowColor = '#00f0ff';
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, 23, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.12)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(this.x, this.y - 2, 22, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.restore();
     }
-
     ctx.restore();
   }
 }
@@ -1383,205 +1388,132 @@ class Enemy {
   draw(ctx, spriteSheet) {
     if (this.hp <= 0) return;
     ctx.save();
-
-    // Ombre portée
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y + this.radius, this.radius * 0.8, 5, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x, this.y + this.radius, this.radius * 0.9, 5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Rebond de marche (bobbing) et inclinaison dynamique
-    const bob = (this.isMoving && this.freezeTimer <= 0) ? Math.abs(Math.sin(Date.now() * 0.015 + this.x)) * 2 : 0;
-    const tilt = (this.isMoving && this.freezeTimer <= 0) ? (this.facingLeft ? -0.05 : 0.05) : 0;
+    const bob = (this.isMoving && this.freezeTimer <= 0) ? Math.abs(Math.sin(Date.now() * 0.015 + this.x)) * 2.5 : 0;
+    const tilt = (this.isMoving && this.freezeTimer <= 0) ? (this.facingLeft ? -0.06 : 0.06) : 0;
+    if (this.hitCooldown > 0) ctx.filter = 'brightness(2.5)';
+    if (this.freezeTimer > 0) ctx.filter = 'hue-rotate(180deg) brightness(1.2)';
 
-    if (this.hitCooldown > 0) {
-      ctx.filter = 'brightness(2.5)';
-    }
-
-    if (this.freezeTimer > 0) {
-      ctx.filter = 'hue-rotate(180deg) brightness(1.2)';
-    }
-
+    ctx.save();
     ctx.translate(this.x, this.y - bob);
-    if (this.facingLeft) {
-      ctx.scale(-1, 1);
-    }
+    if (this.facingLeft) ctx.scale(-1, 1);
     ctx.rotate(tilt);
+    if (this.squashTimer > 0) ctx.scale(1.22, 0.82);
+    if (this.windUpTimer > 0) ctx.scale(0.88, 1.15);
 
-    // Squash & Stretch d'impact et Wind-Up de préparation
-    if (this.squashTimer > 0) {
-      ctx.scale(1.22, 0.82);
-    }
-    if (this.windUpTimer > 0) {
-      ctx.scale(0.88, 1.15);
-    }
+    ctx.strokeStyle = '#090714';
+    ctx.lineWidth = 1.5;
+    const step = this.isMoving ? Math.sin(Date.now() * 0.018 + this.x) * 3.5 : 0;
 
-    const sprite = spriteSheet[this.spriteName];
-    const size = this.isBoss ? 56 : 32;
-
-    // Jambes / Pas animés des monstres
-    if (this.isMoving) {
-      const stepOffset = Math.sin(Date.now() * 0.015 + this.x) * 3;
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(-this.radius * 0.6, this.radius * 0.7 + stepOffset, 3.5, 4);
-      ctx.fillRect(this.radius * 0.3, this.radius * 0.7 - stepOffset, 3.5, 4);
-    }
-
-    if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-      ctx.drawImage(sprite, -size / 2, -size / 2, size, size);
-    } else {
-      ctx.fillStyle = this.isBoss ? '#7209b7' : '#ef4444';
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // ÉQUIPEMENT & ARMES ARTICULÉES DES ENNEMIS V5
-    if (this.type === 'archer') {
-      // Arc en os tenu en main orienté vers le joueur
-      ctx.save();
-      const bowAngle = (this.facingLeft ? Math.PI - (this.angleToPlayer || 0) : (this.angleToPlayer || 0));
-      ctx.rotate(bowAngle * 0.4); // Inclinaison subtile vers la cible
-      ctx.strokeStyle = '#d6d3d1';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(8, 0, 9, -Math.PI * 0.4, Math.PI * 0.4);
-      ctx.stroke();
-      // Corde de l'arc et flèche nockée si tir imminent
-      ctx.strokeStyle = '#78716c';
-      ctx.lineWidth = 1;
-      const pull = (this.shootCooldown < 0.6) ? -4 : 0;
-      ctx.beginPath();
-      ctx.moveTo(8 + Math.cos(-Math.PI * 0.4) * 9, Math.sin(-Math.PI * 0.4) * 9);
-      ctx.lineTo(8 + pull, 0);
-      ctx.lineTo(8 + Math.cos(Math.PI * 0.4) * 9, Math.sin(Math.PI * 0.4) * 9);
-      ctx.stroke();
-      if (this.shootCooldown < 0.6) {
-        ctx.fillStyle = '#e0aaff';
-        ctx.fillRect(4, -1, 10, 2);
-      }
-      ctx.restore();
+    if (this.type === 'swarmer') {
+      // Goule Sanglante 2.5D
+      ctx.fillStyle = '#450a0a';
+      ctx.fillRect(-5, 5 + step, 3.5, 5); ctx.fillRect(1.5, 5 - step, 3.5, 5);
+      const gGrad = ctx.createRadialGradient(0, -2, 2, 0, 0, 12);
+      gGrad.addColorStop(0, '#ef4444'); gGrad.addColorStop(1, '#7f1d1d');
+      ctx.fillStyle = gGrad;
+      ctx.beginPath(); ctx.arc(0, -2, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(1, -6, 3, 2.5); ctx.fillRect(5, -6, 3, 2.5);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.moveTo(1, 1); ctx.lineTo(3, 4); ctx.lineTo(5, 1); ctx.lineTo(7, 4); ctx.stroke();
+    } else if (this.type === 'archer') {
+      // Squelette Archer 2.5D (sans double arc)
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(-4, 5 + step, 3, 6); ctx.fillRect(1, 5 - step, 3, 6);
+      ctx.fillStyle = '#475569';
+      ctx.beginPath(); ctx.roundRect(-6, -5, 12, 11, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(-4, -3, 8, 2); ctx.fillRect(-4, 1, 8, 2);
+      ctx.beginPath(); ctx.arc(0, -10, 6.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#090714';
+      ctx.fillRect(0, -12, 2.5, 2.5); ctx.fillRect(3.5, -12, 2.5, 2.5);
+      // Arc unique articulé
+      ctx.strokeStyle = '#b45309'; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.arc(7, -1, 8, -Math.PI * 0.45, Math.PI * 0.45); ctx.stroke();
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(8, -8); ctx.lineTo(5, -1); ctx.lineTo(8, 6); ctx.stroke();
+    } else if (this.type === 'mage') {
+      // Sorcier Nécromancien 2.5D
+      const mGrad = ctx.createLinearGradient(0, -12, 0, 12);
+      mGrad.addColorStop(0, '#581c87'); mGrad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = mGrad;
+      ctx.beginPath(); ctx.moveTo(-6, -6); ctx.lineTo(6, -6); ctx.lineTo(9, 11); ctx.lineTo(-9, 11); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -10, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#f43f5e'; ctx.shadowBlur = 8; ctx.shadowColor = '#f43f5e';
+      ctx.fillRect(1, -11, 2.5, 2); ctx.fillRect(4.5, -11, 2.5, 2); ctx.shadowBlur = 0;
+      const orbY = Math.sin(Date.now() * 0.008) * 3;
+      ctx.fillStyle = '#c084fc';
+      ctx.beginPath(); ctx.arc(11, -5 + orbY, 3.5, 0, Math.PI * 2); ctx.fill();
     } else if (this.type === 'tank') {
-      // Grand Pavois / Bouclier de Tour d'Acier et d'Or
-      ctx.save();
-      ctx.fillStyle = '#334155';
-      ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.rect(7, -10, 6, 20);
-      ctx.fill();
-      ctx.stroke();
-      // Boss central du bouclier
+      // Colosse Cuirassé 2.5D (sans double bouclier)
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-7, 7 + step, 5, 6); ctx.fillRect(2, 7 - step, 5, 6);
+      const tGrad = ctx.createLinearGradient(-10, -8, 10, 10);
+      tGrad.addColorStop(0, '#94a3b8'); tGrad.addColorStop(1, '#1e293b');
+      ctx.fillStyle = tGrad;
+      ctx.beginPath(); ctx.roundRect(-10, -7, 20, 16, 4); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(-7, -16, 14, 10, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(-2, -12, 8, 2.5);
+      // Bouclier de tour unique
+      ctx.fillStyle = '#334155'; ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.roundRect(6, -8, 7, 18, 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ef4444'; ctx.fillRect(8.5, -5, 2, 12);
+    } else if (this.type === 'boss') {
+      // Le Souverain Déchu (Roi Spectre 2.5D)
+      const bGrad = ctx.createRadialGradient(0, 0, 4, 0, 0, 26);
+      bGrad.addColorStop(0, '#7c3aed'); bGrad.addColorStop(1, '#1e1b4b');
+      ctx.fillStyle = bGrad;
+      ctx.beginPath(); ctx.moveTo(-14, -10); ctx.lineTo(14, -10); ctx.lineTo(20, 22); ctx.lineTo(-20, 22); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath(); ctx.arc(0, -14, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#00f0ff'; ctx.shadowBlur = 10; ctx.shadowColor = '#00f0ff';
+      ctx.fillRect(-4, -16, 3.5, 3); ctx.fillRect(2, -16, 3.5, 3); ctx.shadowBlur = 0;
+      // Couronne royale dorée
       ctx.fillStyle = '#fbbf24';
       ctx.beginPath();
-      ctx.arc(10, 0, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    } else if (this.type === 'boss') {
-      // Lames spectrales éthérées en orbite autour du Souverain Déchu
-      ctx.save();
-      const bladeTime = Date.now() * 0.003;
+      ctx.moveTo(-9, -21); ctx.lineTo(-9, -29); ctx.lineTo(-4, -24); ctx.lineTo(0, -31); ctx.lineTo(4, -24); ctx.lineTo(9, -29); ctx.lineTo(9, -21);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // 4 Lames spectrales en orbite
+      const bt = Date.now() * 0.003;
       for (let b = 0; b < 4; b++) {
-        const bladeOrbit = bladeTime + (b * Math.PI * 0.5);
-        const bx = Math.cos(bladeOrbit) * 36;
-        const by = Math.sin(bladeOrbit) * 36;
+        const ang = bt + b * Math.PI * 0.5;
         ctx.save();
-        ctx.translate(bx, by);
-        ctx.rotate(bladeOrbit + Math.PI / 2);
-        // Lame spectrale violette / cramoisie lumineuse
+        ctx.translate(Math.cos(ang) * 34, Math.sin(ang) * 24);
+        ctx.rotate(ang + Math.PI / 2);
         ctx.fillStyle = '#c084fc';
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = '#c084fc';
-        ctx.beginPath();
-        ctx.moveTo(0, -10);
-        ctx.lineTo(3.5, 6);
-        ctx.lineTo(0, 10);
-        ctx.lineTo(-3.5, 6);
-        ctx.closePath();
-        ctx.fill();
+        ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(3.5, 5); ctx.lineTo(0, 9); ctx.lineTo(-3.5, 5); ctx.closePath();
+        ctx.fill(); ctx.stroke();
         ctx.restore();
       }
-      ctx.restore();
     }
 
-    // INDICATEURS D'ÉTATS MASSIFS V4
-    // 1. Glaçons massifs orbitant autour de l'ennemi gelé
+    // Effets d'états (Gel, Brûlure, Barrière, Garde)
     if (this.freezeTimer > 0) {
-      ctx.save();
-      for (let i = 0; i < 4; i++) {
-        const orbitAngle = (Date.now() * 0.005) + (i * Math.PI * 0.5);
-        const ox = Math.cos(orbitAngle) * (this.radius + 6);
-        const oy = Math.sin(orbitAngle) * (this.radius + 6);
-        ctx.fillStyle = '#67e8f9';
-        ctx.beginPath();
-        ctx.moveTo(ox, oy - 4);
-        ctx.lineTo(ox + 3, oy);
-        ctx.lineTo(ox, oy + 4);
-        ctx.lineTo(ox - 3, oy);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.restore();
+      ctx.strokeStyle = '#67e8f9'; ctx.lineWidth = 2;
+      ctx.strokeRect(-this.radius, -this.radius, this.radius * 2, this.radius * 2);
     }
-
-    // 2. Étoiles étourdissantes
-    if (this.freezeTimer > 0 && this.freezeType === 'stun') {
-      ctx.save();
-      const starTime = Date.now() * 0.008;
-      for (let i = 0; i < 3; i++) {
-        const sa = starTime + (i * Math.PI * 2 / 3);
-        const sx = Math.cos(sa) * 12;
-        const sy = -this.radius - 8 + Math.sin(sa) * 3;
-        ctx.fillStyle = '#ffd166';
-        ctx.fillRect(sx - 2, sy - 2, 4, 4);
-      }
-      ctx.restore();
-    }
-
-    // 3. Flammes vives si brûlure
-    if (this.burnTimer > 0) {
-      ctx.save();
-      ctx.fillStyle = '#ff5400';
-      ctx.fillRect(-6 + Math.random() * 12, -this.radius - Math.random() * 8, 4, 6);
-      ctx.restore();
-    }
-
-    // 4. Barrière arcanique du mage
     if (this.barrierHp > 0) {
-      ctx.save();
-      ctx.strokeStyle = '#c084fc';
-      ctx.lineWidth = 2.5;
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = '#c084fc';
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
+      ctx.strokeStyle = '#c084fc'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2); ctx.stroke();
     }
-
-    // 5. Posture de garde du Tank
-    if (this.isGuarding) {
-      ctx.save();
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(10, 0, 16, -Math.PI * 0.4, Math.PI * 0.4);
-      ctx.stroke();
-      ctx.restore();
-    }
-
     ctx.restore();
 
-    // Barre de vie au-dessus de l'ennemi (hors Boss qui a une barre HUD dédiée)
     if (!this.isBoss && this.hp < this.maxHp) {
-      const barW = 28;
-      const barH = 4;
-      const pct = Math.max(0, this.hp / this.maxHp);
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(this.x - barW / 2, this.y - this.radius - 8, barW, barH);
+      const barW = 28, barH = 4, pct = Math.max(0, this.hp / this.maxHp);
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(this.x - barW / 2, this.y - this.radius - 12, barW, barH);
       ctx.fillStyle = '#ef4444';
-      ctx.fillRect(this.x - barW / 2, this.y - this.radius - 8, barW * pct, barH);
+      ctx.fillRect(this.x - barW / 2, this.y - this.radius - 12, barW * pct, barH);
     }
+    ctx.restore();
   }
 }
 

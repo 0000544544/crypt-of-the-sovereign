@@ -457,7 +457,7 @@ class Game {
     dest.hp = 0;
     this.hitFreezeTimer = 0.05;
     this.sound.playHit();
-    this.particles.addDebrisBurst(dest.x, dest.y, dest.type === 'barrel' ? 'wood' : 'stone');
+    this.particles.addDebrisBurst(dest.x, dest.y, dest.type);
 
     if (dest.content === 'gold') {
       const val = Math.round((12 + Math.random() * 14) * this.tensionMultiplier);
@@ -1274,6 +1274,16 @@ class Game {
             this.ctx.fillStyle = '#050308';
             this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           }
+
+          // Paroi de falaise sombre de 14px de haut au bord supérieur des tuiles TILE.CHASM pour donner un vrai relief 3D aux gouffres
+          const cliffGrad = this.ctx.createLinearGradient(px, py, px, py + 14);
+          cliffGrad.addColorStop(0, '#1a1429');
+          cliffGrad.addColorStop(0.4, '#0f0b1a');
+          cliffGrad.addColorStop(1, '#050308');
+          this.ctx.fillStyle = cliffGrad;
+          this.ctx.fillRect(px, py, TILE_SIZE, 14);
+          this.ctx.fillStyle = '#2d223d';
+          this.ctx.fillRect(px, py, TILE_SIZE, 2);
         } else if (tileType === TILE.BRIDGE) {
           const sprite = this.sprites['tile_bridge.png'];
           if (sprite && sprite.complete && sprite.naturalWidth > 0) {
@@ -1345,8 +1355,11 @@ class Game {
     }
 
     // ==========================================
-    // TOIT DU MUR 2.5D (Top Face avec Élévation py - 18)
+    // COUCHE 2 : TRI DE PROFONDEUR 2.5D (Y-SORTING)
     // ==========================================
+    const renderList = [];
+
+    // 1. Murs 2.5D (Toit décalé py - 18 ET Façade verticale avant dans le Y-Sorting à y: (ty + 1) * TILE_SIZE)
     for (let ty = startTileY; ty <= endTileY; ty++) {
       for (let tx = startTileX; tx <= endTileX; tx++) {
         if (this.dungeon.discovered[ty]?.[tx] !== 1) continue;
@@ -1354,49 +1367,33 @@ class Game {
           const px = tx * TILE_SIZE;
           const py = ty * TILE_SIZE;
           const isVis = (this.dungeon.visible[ty]?.[tx] === 1);
+          const hasFrontFace = (this.dungeon.grid[ty + 1]?.[tx] !== TILE.WALL);
 
-          // Sommet du mur décalé vers le haut (py - 18) créant le volume 3D
-          const topH = 28;
-          // Intérieur sombre de la dalle supérieure
-          this.ctx.fillStyle = '#0f172a';
-          this.ctx.fillRect(px, py - 18, 32, topH);
-          // Flagstone texture sur le toit
-          this.ctx.fillStyle = '#1e293b';
-          this.ctx.fillRect(px + 2, py - 16, 13, topH - 4);
-          this.ctx.fillRect(px + 17, py - 16, 13, topH - 4);
-          // Corniche claire en pierre biseautée
-          this.ctx.fillStyle = '#475569';
-          this.ctx.fillRect(px, py - 18, 32, 2.5); // Bordure supérieure
-          this.ctx.fillRect(px, py - 18, 2, topH);   // Bordure gauche
-          this.ctx.fillRect(px + 30, py - 18, 2, topH); // Bordure droite
+          renderList.push({
+            y: (ty + 1) * TILE_SIZE,
+            render: () => {
+              // Sommet du mur décalé vers le haut (py - 18) créant le volume 3D
+              const topH = 28;
+              // Intérieur sombre de la dalle supérieure
+              this.ctx.fillStyle = '#0f172a';
+              this.ctx.fillRect(px, py - 18, 32, topH);
+              // Flagstone texture sur le toit
+              this.ctx.fillStyle = '#1e293b';
+              this.ctx.fillRect(px + 2, py - 16, 13, topH - 4);
+              this.ctx.fillRect(px + 17, py - 16, 13, topH - 4);
+              // Corniche claire en pierre biseautée
+              this.ctx.fillStyle = '#475569';
+              this.ctx.fillRect(px, py - 18, 32, 2.5); // Bordure supérieure
+              this.ctx.fillRect(px, py - 18, 2, topH);   // Bordure gauche
+              this.ctx.fillRect(px + 30, py - 18, 2, topH); // Bordure droite
 
-          if (!isVis) {
-            this.ctx.fillStyle = 'rgba(10, 9, 16, 0.65)';
-            this.ctx.fillRect(px, py - 18, 32, topH);
-          }
-        }
-      }
-    }
+              if (!isVis) {
+                this.ctx.fillStyle = 'rgba(10, 9, 16, 0.65)';
+                this.ctx.fillRect(px, py - 18, 32, topH);
+              }
 
-    // ==========================================
-    // COUCHE 2 : TRI DE PROFONDEUR 2.5D (Y-SORTING)
-    // ==========================================
-    const renderList = [];
-
-    // 1. Façades verticales avant des Murs 2.5D (Front Faces)
-    for (let ty = startTileY; ty <= endTileY; ty++) {
-      for (let tx = startTileX; tx <= endTileX; tx++) {
-        if (this.dungeon.discovered[ty]?.[tx] !== 1) continue;
-        if (this.dungeon.grid[ty][tx] === TILE.WALL) {
-          // Présence d'une paroi visible uniquement si la tuile au sud n'est pas un mur
-          if (this.dungeon.grid[ty + 1]?.[tx] !== TILE.WALL) {
-            const px = tx * TILE_SIZE;
-            const py = ty * TILE_SIZE;
-            const isVis = (this.dungeon.visible[ty]?.[tx] === 1);
-
-            renderList.push({
-              y: py + 32,
-              render: () => {
+              // Façade verticale avant uniquement si la tuile au sud n'est pas un mur
+              if (hasFrontFace) {
                 // Paroi verticale avant de 22px de haut en pierre sculptée
                 this.ctx.fillStyle = '#1e293b';
                 this.ctx.fillRect(px, py + 10, 32, 22);
@@ -1427,8 +1424,8 @@ class Game {
                   this.ctx.fillRect(px, py + 10, 32, 22);
                 }
               }
-            });
-          }
+            }
+          });
         }
       }
     }
