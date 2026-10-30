@@ -68,7 +68,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: 220px;
+  width: 250px;
   pointer-events: auto;
 }
 
@@ -76,11 +76,30 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(15, 12, 25, 0.75);
+  background: rgba(14, 11, 23, 0.90);
   padding: 4px 8px;
-  border: 1px solid #332b4a;
-  border-radius: 4px;
+  border: 2px solid #d97706;
+  border-radius: 6px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.8), inset 0 0 6px rgba(217, 119, 6, 0.2);
 }
+
+.stat-medallion {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid #d97706;
+  background: #161224;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.4);
+}
+
+.hp-medallion { color: #ef4444; }
+.mana-medallion { color: #38bdf8; }
+.stamina-medallion { color: #10b981; }
 
 .stat-bar-label {
   font-size: 10px;
@@ -94,10 +113,11 @@ body {
 .stat-bar-container.stamina .stat-bar-label { color: #10b981; }
 
 .stat-bar-track {
+  position: relative;
   flex: 1;
-  height: 10px;
+  height: 14px;
   background: #110e1c;
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
   border: 1px solid #221c33;
 }
@@ -106,6 +126,24 @@ body {
   height: 100%;
   width: 100%;
   transition: width 0.15s ease-out;
+}
+
+.stat-bar-val {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 1px 1px 2px #000, 0 0 4px #000;
+  pointer-events: none;
+  z-index: 2;
+  letter-spacing: 0.5px;
 }
 
 .hp .stat-bar-fill { background: linear-gradient(90deg, #b91c1c, #ef4444); box-shadow: 0 0 8px #ef4444; }
@@ -235,17 +273,23 @@ body {
   image-rendering: pixelated;
 }
 
-/* Barre de vie du Boss */
+/* Barre de vie du Boss (V5 Cadre ornemental sombre et doré à top: 78px) */
 #bossHud {
   position: absolute;
-  top: 60px;
+  top: 78px;
   left: 50%;
   transform: translateX(-50%);
-  width: 500px;
+  width: 480px;
+  background: rgba(14, 10, 22, 0.94);
+  border: 2px solid #d97706;
+  box-shadow: 0 0 20px rgba(217, 119, 6, 0.4), inset 0 0 10px rgba(0, 0, 0, 0.8);
+  border-radius: 6px;
+  padding: 6px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  z-index: 20;
 }
 
 .boss-title {
@@ -881,19 +925,30 @@ body {
    V4 ACTION-RPG : GOTHIC UI, TENSION GAUGE & SOCKET SYSTEM
    ======================================================== */
 
-/* Jauge d'Angoisse & Tension */
+/* Jauge d'Angoisse & Tension V5 (Diablo / Hades Style, centrée au bas) */
+.hud-bottom-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  z-index: 15;
+  pointer-events: auto;
+  display: flex;
+  justify-content: center;
+}
+
 .hud-tension-container {
+  width: 100%;
+  background: rgba(14, 11, 23, 0.94);
+  border: 2px solid #d97706;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.9), inset 0 0 8px rgba(217, 119, 6, 0.25);
+  border-radius: 6px;
+  padding: 6px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  background: rgba(14, 11, 23, 0.88);
-  border: 1px solid #4a386b;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.8), inset 0 0 6px rgba(147, 51, 234, 0.2);
-  padding: 4px 10px;
-  border-radius: 4px;
-  margin-top: 4px;
-  width: 170px;
+  gap: 4px;
 }
 
 .tension-label-wrap {
@@ -903,19 +958,20 @@ body {
 }
 
 .tension-label {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.5px;
-  color: #cbd5e1;
+  letter-spacing: 0.8px;
+  color: #fbbf24;
+  text-shadow: 0 1px 2px #000;
   text-transform: uppercase;
 }
 
 .tension-track {
   width: 100%;
-  height: 6px;
+  height: 8px;
   background: #0b0914;
   border: 1px solid #281d3d;
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
 }
 
@@ -924,7 +980,7 @@ body {
   width: 0%;
   background: linear-gradient(90deg, #1d4ed8, #38bdf8);
   transition: width 0.2s ease-out, background 0.3s ease;
-  box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
 }
 
 /* Châsses & Indicateurs de Gemmes/Runes */

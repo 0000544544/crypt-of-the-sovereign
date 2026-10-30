@@ -44,9 +44,10 @@ class Game {
     this.lastSafePos = { x: 0, y: 0 };
     this.selectedBagIndex = -1;
 
-    // Caméra
+    // Caméra & Zoom 2.5D
     this.camera = { x: 0, y: 0 };
     this.screenShake = 0;
+    this.zoom = 2.0;
 
     // Statistiques de la partie en cours
     this.runStats = {
@@ -78,6 +79,9 @@ class Game {
       hpBarFill: document.getElementById('hpBarFill'),
       manaBarFill: document.getElementById('manaBarFill'),
       staminaBarFill: document.getElementById('staminaBarFill'),
+      hpText: document.getElementById('hpText'),
+      manaText: document.getElementById('manaText'),
+      staminaText: document.getElementById('staminaText'),
       hudFloor: document.getElementById('hudFloor'),
       hudGold: document.getElementById('hudGold'),
       hudSouls: document.getElementById('hudSouls'),
@@ -453,7 +457,7 @@ class Game {
     dest.hp = 0;
     this.hitFreezeTimer = 0.05;
     this.sound.playHit();
-    this.particles.addDebrisBurst(dest.x, dest.y, dest.type === 'barrel' ? '#854d0e' : '#b45309');
+    this.particles.addDebrisBurst(dest.x, dest.y, dest.type === 'barrel' ? 'wood' : 'stone');
 
     if (dest.content === 'gold') {
       const val = Math.round((12 + Math.random() * 14) * this.tensionMultiplier);
@@ -467,7 +471,7 @@ class Game {
     } else if (dest.content === 'item') {
       this.drops.push(new DropItem(dest.x, dest.y, { type: 'item', item: ItemGenerator.createItem(this.currentFloorNumber) }));
     } else if (dest.content === 'gas' || dest.content === 'trap_gas') {
-      this.particles.addAcidCloud(dest.x, dest.y, 2.5);
+      this.particles.addAcidCloud(dest.x, dest.y, 20);
       this.damageNumbers.push(new DamageNumber(dest.x, dest.y - 15, 'PIÈGE DE GAZ !', '#22c55e', true));
       if (Math.hypot(this.player.x - dest.x, this.player.y - dest.y) < 45) {
         this.player.takeDamage(15, this.sound, this.damageNumbers, 'Nuage de Gaz');
@@ -516,9 +520,9 @@ class Game {
       return;
     }
 
-    // 1. Mise à jour de l'Input avec position du joueur sur l'écran
-    const screenPx = this.player.x - this.camera.x;
-    const screenPy = this.player.y - this.camera.y;
+    // 1. Mise à jour de l'Input avec position du joueur sur l'écran (avec échelle de zoom 2.0x)
+    const screenPx = (this.player.x - this.camera.x) * this.zoom;
+    const screenPy = (this.player.y - this.camera.y) * this.zoom;
     this.input.update(screenPx, screenPy);
 
     // Utilisation rapide des potions (touches 1 et 2)
@@ -557,9 +561,9 @@ class Game {
       return;
     }
 
-    // 3. Mise à jour de la Caméra fluide
-    const targetCamX = this.player.x - this.canvas.width / 2;
-    const targetCamY = this.player.y - this.canvas.height / 2;
+    // 3. Mise à jour de la Caméra fluide (Zoom immersif x2.0)
+    const targetCamX = this.player.x - (this.canvas.width / 2) / this.zoom;
+    const targetCamY = this.player.y - (this.canvas.height / 2) / this.zoom;
     this.camera.x += (targetCamX - this.camera.x) * 8 * dt;
     this.camera.y += (targetCamY - this.camera.y) * 8 * dt;
 
@@ -1149,6 +1153,11 @@ class Game {
       this.dom.staminaBarFill.style.width = `${pct}%`;
     }
 
+    // Affichage des valeurs exactes chiffrées (Style Gothique Royal V5)
+    if (this.dom.hpText) this.dom.hpText.textContent = `${Math.round(this.player.hp)} / ${this.player.maxHp} PV`;
+    if (this.dom.manaText) this.dom.manaText.textContent = `${Math.round(this.player.mana)} / ${this.player.maxMana} MANA`;
+    if (this.dom.staminaText) this.dom.staminaText.textContent = `${Math.round(this.player.stamina)} / ${this.player.maxStamina} ENDU`;
+
     if (this.dom.hudGold) this.dom.hudGold.textContent = this.inventory.gold;
     if (this.dom.hudSouls) this.dom.hudSouls.textContent = this.inventory.souls;
     if (this.dom.hudPotionHp) this.dom.hudPotionHp.textContent = `x${this.inventory.potions.health}`;
@@ -1213,17 +1222,23 @@ class Game {
     }
 
     this.ctx.save();
-    // Application de la caméra et du shake
+    // V5 Moteur 2.5D : Échelle Zoomée x2.0 et caméra centrée
+    this.ctx.scale(this.zoom, this.zoom);
     const shakeX = (Math.random() - 0.5) * this.screenShake;
     const shakeY = (Math.random() - 0.5) * this.screenShake;
     this.ctx.translate(Math.round(-this.camera.x + shakeX), Math.round(-this.camera.y + shakeY));
 
-    // 1. Rendu des Tuiles du Donjon dans le champ de vision caméra
-    const startTileX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE));
-    const endTileX = Math.min(this.dungeon.width - 1, Math.ceil((this.camera.x + this.canvas.width) / TILE_SIZE));
-    const startTileY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE));
-    const endTileY = Math.min(this.dungeon.height - 1, Math.ceil((this.camera.y + this.canvas.height) / TILE_SIZE));
+    // 1. Calcul du champ de vision caméra avec marge de sécurité pour la hauteur des murs
+    const viewW = this.canvas.width / this.zoom;
+    const viewH = this.canvas.height / this.zoom;
+    const startTileX = Math.max(0, Math.floor(this.camera.x / TILE_SIZE) - 2);
+    const endTileX = Math.min(this.dungeon.width - 1, Math.ceil((this.camera.x + viewW) / TILE_SIZE) + 2);
+    const startTileY = Math.max(0, Math.floor(this.camera.y / TILE_SIZE) - 3);
+    const endTileY = Math.min(this.dungeon.height - 1, Math.ceil((this.camera.y + viewH) / TILE_SIZE) + 3);
 
+    // ==========================================
+    // COUCHE 1 : SOL, GOUFFRES, PONTS & OMBRES 2.5D
+    // ==========================================
     for (let ty = startTileY; ty <= endTileY; ty++) {
       for (let tx = startTileX; tx <= endTileX; tx++) {
         const isDiscovered = this.dungeon.discovered[ty][tx];
@@ -1234,38 +1249,75 @@ class Game {
         const px = tx * TILE_SIZE;
         const py = ty * TILE_SIZE;
 
-        let sprite = null;
         if (tileType === TILE.FLOOR) {
           const variant = this.dungeon.floorVariants ? this.dungeon.floorVariants[ty]?.[tx] : 0;
-          if (variant === 1) sprite = this.sprites['tile_floor_cracked.png'];
-          else if (variant === 2) sprite = this.sprites['tile_floor_moss.png'];
-          else sprite = this.sprites['tile_floor.png'];
+          let sprite = (variant === 1) ? this.sprites['tile_floor_cracked.png'] : ((variant === 2) ? this.sprites['tile_floor_moss.png'] : this.sprites['tile_floor.png']);
+          if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            this.ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
+          } else {
+            this.ctx.fillStyle = '#334155';
+            this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          }
+        } else if (tileType === TILE.STAIRS) {
+          const sprite = this.sprites['tile_stairs.png'];
+          if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            this.ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
+          } else {
+            this.ctx.fillStyle = '#fbbf24';
+            this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          }
+        } else if (tileType === TILE.CHASM) {
+          const sprite = this.sprites['tile_chasm.png'];
+          if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            this.ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
+          } else {
+            this.ctx.fillStyle = '#050308';
+            this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          }
+        } else if (tileType === TILE.BRIDGE) {
+          const sprite = this.sprites['tile_bridge.png'];
+          if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            this.ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
+          } else {
+            this.ctx.fillStyle = '#64748b';
+            this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          }
         }
-        else if (tileType === TILE.WALL) sprite = this.sprites['tile_wall.png'];
-        else if (tileType === TILE.STAIRS) sprite = this.sprites['tile_stairs.png'];
-        else if (tileType === TILE.CHASM) sprite = this.sprites['tile_chasm.png'];
-        else if (tileType === TILE.BRIDGE) sprite = this.sprites['tile_bridge.png'];
 
-        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-          this.ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
-        } else {
-          // Fallback
-          this.ctx.fillStyle = tileType === TILE.WALL ? '#1e293b' : (tileType === TILE.CHASM ? '#050308' : '#334155');
-          this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        }
-
-        // Assombrir les zones explorées mais non visibles actuellement
-        if (!isVisible) {
+        // Assombrissement zones explorées hors champ de vision
+        if (!isVisible && tileType !== TILE.WALL) {
           this.ctx.fillStyle = 'rgba(10, 9, 16, 0.65)';
           this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
         }
       }
     }
 
-    // 1b. Taches de sang persistantes au sol (gore pixel art sous les entités)
+    // Ombres portées 2.5D au sol (projetées au sud et à l'est de chaque mur)
+    for (let ty = startTileY; ty <= endTileY; ty++) {
+      for (let tx = startTileX; tx <= endTileX; tx++) {
+        if (this.dungeon.discovered[ty]?.[tx] !== 1) continue;
+        if (this.dungeon.grid[ty][tx] === TILE.WALL) {
+          const px = tx * TILE_SIZE;
+          const py = ty * TILE_SIZE;
+
+          // Ombre portée au Sud si la case en dessous est praticable
+          if (this.dungeon.grid[ty + 1]?.[tx] !== TILE.WALL) {
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+            this.ctx.fillRect(px, py + 32, 32, 14);
+          }
+          // Ombre portée à l'Est si la case à droite est praticable
+          if (this.dungeon.grid[ty]?.[tx + 1] !== TILE.WALL) {
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+            this.ctx.fillRect(px + 32, py + 12, 14, 34);
+          }
+        }
+      }
+    }
+
+    // Taches de sang persistantes au sol (gore pixel art sous les entités)
     this.particles.drawSplats(this.ctx);
 
-    // 1c. Variété et Encombrement au sol (Bones, Chains, Puddles)
+    // Variété et Encombrement au sol (Bones, Chains, Puddles)
     if (this.dungeon.decors) {
       for (const dec of this.dungeon.decors) {
         const tx = Math.floor(dec.x / TILE_SIZE);
@@ -1280,70 +1332,7 @@ class Game {
       }
     }
 
-    // 2. Pièges, Coffres, Flambeaux, Marchand, Destructibles et Autels (uniquement si tuile découverte)
-    // Destructibles (Tonneaux et Urnes)
-    if (this.dungeon.destructibles) {
-      for (const dest of this.dungeon.destructibles) {
-        if (!dest.destroyed) {
-          const tx = Math.floor(dest.x / TILE_SIZE);
-          const ty = Math.floor(dest.y / TILE_SIZE);
-          if (this.dungeon.discovered[ty]?.[tx] === 1) {
-            const sprName = `tile_${dest.type}.png`;
-            const sprite = this.sprites[sprName] || this.sprites['tile_barrel.png'];
-            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-              this.ctx.drawImage(sprite, dest.x - 16, dest.y - 16, 32, 32);
-            }
-          }
-        }
-      }
-    }
-
-    // Autels Sacrificiels
-    if (this.dungeon.altars) {
-      for (const altar of this.dungeon.altars) {
-        const tx = Math.floor(altar.x / TILE_SIZE);
-        const ty = Math.floor(altar.y / TILE_SIZE);
-        if (this.dungeon.discovered[ty]?.[tx] === 1) {
-          const sprite = this.sprites['tile_altar.png'];
-          if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-            this.ctx.drawImage(sprite, altar.x - 16, altar.y - 16, 32, 32);
-          }
-          if (!altar.used && this.dungeon.visible[ty]?.[tx] === 1) {
-            const pulse = 0.8 + Math.sin(Date.now() * 0.006) * 0.2;
-            const grad = this.ctx.createRadialGradient(altar.x, altar.y, 4, altar.x, altar.y, 36 * pulse);
-            grad.addColorStop(0, 'rgba(239, 68, 68, 0.45)');
-            grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
-            this.ctx.fillStyle = grad;
-            this.ctx.beginPath();
-            this.ctx.arc(altar.x, altar.y, 36 * pulse, 0, Math.PI * 2);
-            this.ctx.fill();
-          }
-        }
-      }
-    }
-
-    for (const torch of this.dungeon.torches) {
-      const ttx = Math.floor(torch.x / TILE_SIZE);
-      const tty = Math.floor(torch.y / TILE_SIZE);
-      if (this.dungeon.discovered[tty]?.[ttx] === 1) {
-        const sprite = this.sprites['tile_torch.png'];
-        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-          this.ctx.drawImage(sprite, torch.x, torch.y, TILE_SIZE, TILE_SIZE);
-        }
-        if (this.dungeon.visible[tty]?.[ttx] === 1) {
-          const pulse = 0.85 + Math.sin(Date.now() * 0.008 + torch.id) * 0.15;
-          const grad = this.ctx.createRadialGradient(torch.x + 16, torch.y + 16, 4, torch.x + 16, torch.y + 16, 68 * pulse);
-          grad.addColorStop(0, 'rgba(255, 200, 80, 0.35)');
-          grad.addColorStop(0.4, 'rgba(245, 158, 11, 0.18)');
-          grad.addColorStop(1, 'rgba(180, 83, 9, 0)');
-          this.ctx.fillStyle = grad;
-          this.ctx.beginPath();
-          this.ctx.arc(torch.x + 16, torch.y + 16, 68 * pulse, 0, Math.PI * 2);
-          this.ctx.fill();
-        }
-      }
-    }
-
+    // Pièges de pointes au sol
     for (const trap of this.dungeon.traps) {
       const tx = Math.floor(trap.x / TILE_SIZE);
       const ty = Math.floor(trap.y / TILE_SIZE);
@@ -1355,53 +1344,251 @@ class Game {
       }
     }
 
-    for (const chest of this.dungeon.chests) {
-      const tx = Math.floor(chest.x / TILE_SIZE);
-      const ty = Math.floor(chest.y / TILE_SIZE);
-      if (this.dungeon.discovered[ty]?.[tx] === 1) {
-        const sprite = chest.opened ? this.sprites['tile_chest_open.png'] : this.sprites['tile_chest_closed.png'];
-        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-          this.ctx.drawImage(sprite, chest.x - 16, chest.y - 16, 32, 32);
+    // ==========================================
+    // TOIT DU MUR 2.5D (Top Face avec Élévation py - 18)
+    // ==========================================
+    for (let ty = startTileY; ty <= endTileY; ty++) {
+      for (let tx = startTileX; tx <= endTileX; tx++) {
+        if (this.dungeon.discovered[ty]?.[tx] !== 1) continue;
+        if (this.dungeon.grid[ty][tx] === TILE.WALL) {
+          const px = tx * TILE_SIZE;
+          const py = ty * TILE_SIZE;
+          const isVis = (this.dungeon.visible[ty]?.[tx] === 1);
+
+          // Sommet du mur décalé vers le haut (py - 18) créant le volume 3D
+          const topH = 28;
+          // Intérieur sombre de la dalle supérieure
+          this.ctx.fillStyle = '#0f172a';
+          this.ctx.fillRect(px, py - 18, 32, topH);
+          // Flagstone texture sur le toit
+          this.ctx.fillStyle = '#1e293b';
+          this.ctx.fillRect(px + 2, py - 16, 13, topH - 4);
+          this.ctx.fillRect(px + 17, py - 16, 13, topH - 4);
+          // Corniche claire en pierre biseautée
+          this.ctx.fillStyle = '#475569';
+          this.ctx.fillRect(px, py - 18, 32, 2.5); // Bordure supérieure
+          this.ctx.fillRect(px, py - 18, 2, topH);   // Bordure gauche
+          this.ctx.fillRect(px + 30, py - 18, 2, topH); // Bordure droite
+
+          if (!isVis) {
+            this.ctx.fillStyle = 'rgba(10, 9, 16, 0.65)';
+            this.ctx.fillRect(px, py - 18, 32, topH);
+          }
         }
       }
     }
 
+    // ==========================================
+    // COUCHE 2 : TRI DE PROFONDEUR 2.5D (Y-SORTING)
+    // ==========================================
+    const renderList = [];
+
+    // 1. Façades verticales avant des Murs 2.5D (Front Faces)
+    for (let ty = startTileY; ty <= endTileY; ty++) {
+      for (let tx = startTileX; tx <= endTileX; tx++) {
+        if (this.dungeon.discovered[ty]?.[tx] !== 1) continue;
+        if (this.dungeon.grid[ty][tx] === TILE.WALL) {
+          // Présence d'une paroi visible uniquement si la tuile au sud n'est pas un mur
+          if (this.dungeon.grid[ty + 1]?.[tx] !== TILE.WALL) {
+            const px = tx * TILE_SIZE;
+            const py = ty * TILE_SIZE;
+            const isVis = (this.dungeon.visible[ty]?.[tx] === 1);
+
+            renderList.push({
+              y: py + 32,
+              render: () => {
+                // Paroi verticale avant de 22px de haut en pierre sculptée
+                this.ctx.fillStyle = '#1e293b';
+                this.ctx.fillRect(px, py + 10, 32, 22);
+
+                // Joints et briques en relief
+                this.ctx.fillStyle = '#334155';
+                this.ctx.fillRect(px, py + 16, 32, 1.5);
+                this.ctx.fillRect(px + 9, py + 10, 1.5, 6);
+                this.ctx.fillRect(px + 23, py + 10, 1.5, 6);
+                this.ctx.fillRect(px + 16, py + 17, 1.5, 12);
+
+                // Arche gothique gravée en relief
+                this.ctx.strokeStyle = '#273549';
+                this.ctx.lineWidth = 1.5;
+                this.ctx.beginPath();
+                this.ctx.moveTo(px + 4, py + 29);
+                this.ctx.lineTo(px + 4, py + 18);
+                this.ctx.quadraticCurveTo(px + 16, py + 11, px + 28, py + 18);
+                this.ctx.lineTo(px + 28, py + 29);
+                this.ctx.stroke();
+
+                // Plinthe sombre au contact du sol
+                this.ctx.fillStyle = '#090714';
+                this.ctx.fillRect(px, py + 29, 32, 3);
+
+                if (!isVis) {
+                  this.ctx.fillStyle = 'rgba(10, 9, 16, 0.65)';
+                  this.ctx.fillRect(px, py + 10, 32, 22);
+                }
+              }
+            });
+          }
+        }
+      }
+    }
+
+    // 2. Flambeaux (Torches murales)
+    for (const torch of this.dungeon.torches) {
+      const ttx = Math.floor(torch.x / TILE_SIZE);
+      const tty = Math.floor(torch.y / TILE_SIZE);
+      if (this.dungeon.discovered[tty]?.[ttx] === 1) {
+        renderList.push({
+          y: torch.y + 16,
+          render: () => {
+            const sprite = this.sprites['tile_torch.png'];
+            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+              this.ctx.drawImage(sprite, torch.x, torch.y, TILE_SIZE, TILE_SIZE);
+            }
+            if (this.dungeon.visible[tty]?.[ttx] === 1) {
+              const pulse = 0.85 + Math.sin(Date.now() * 0.008 + torch.id) * 0.15;
+              const grad = this.ctx.createRadialGradient(torch.x + 16, torch.y + 16, 4, torch.x + 16, torch.y + 16, 68 * pulse);
+              grad.addColorStop(0, 'rgba(255, 200, 80, 0.35)');
+              grad.addColorStop(0.4, 'rgba(245, 158, 11, 0.18)');
+              grad.addColorStop(1, 'rgba(180, 83, 9, 0)');
+              this.ctx.fillStyle = grad;
+              this.ctx.beginPath();
+              this.ctx.arc(torch.x + 16, torch.y + 16, 68 * pulse, 0, Math.PI * 2);
+              this.ctx.fill();
+            }
+          }
+        });
+      }
+    }
+
+    // 3. Objets destructibles (Tonneaux & Urnes)
+    if (this.dungeon.destructibles) {
+      for (const dest of this.dungeon.destructibles) {
+        if (!dest.destroyed) {
+          const tx = Math.floor(dest.x / TILE_SIZE);
+          const ty = Math.floor(dest.y / TILE_SIZE);
+          if (this.dungeon.discovered[ty]?.[tx] === 1) {
+            renderList.push({
+              y: dest.y,
+              render: () => {
+                const sprName = `tile_${dest.type}.png`;
+                const sprite = this.sprites[sprName] || this.sprites['tile_barrel.png'];
+                if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+                  this.ctx.drawImage(sprite, dest.x - 16, dest.y - 16, 32, 32);
+                }
+              }
+            });
+          }
+        }
+      }
+    }
+
+    // 4. Coffres
+    for (const chest of this.dungeon.chests) {
+      const tx = Math.floor(chest.x / TILE_SIZE);
+      const ty = Math.floor(chest.y / TILE_SIZE);
+      if (this.dungeon.discovered[ty]?.[tx] === 1) {
+        renderList.push({
+          y: chest.y,
+          render: () => {
+            const sprite = chest.opened ? this.sprites['tile_chest_open.png'] : this.sprites['tile_chest_closed.png'];
+            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+              this.ctx.drawImage(sprite, chest.x - 16, chest.y - 16, 32, 32);
+            }
+          }
+        });
+      }
+    }
+
+    // 5. Autels Sacrificiels de Sang
+    if (this.dungeon.altars) {
+      for (const altar of this.dungeon.altars) {
+        const tx = Math.floor(altar.x / TILE_SIZE);
+        const ty = Math.floor(altar.y / TILE_SIZE);
+        if (this.dungeon.discovered[ty]?.[tx] === 1) {
+          renderList.push({
+            y: altar.y,
+            render: () => {
+              const sprite = this.sprites['tile_altar.png'];
+              if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+                this.ctx.drawImage(sprite, altar.x - 16, altar.y - 16, 32, 32);
+              }
+              if (!altar.used && this.dungeon.visible[ty]?.[tx] === 1) {
+                const pulse = 0.8 + Math.sin(Date.now() * 0.006) * 0.2;
+                const grad = this.ctx.createRadialGradient(altar.x, altar.y, 4, altar.x, altar.y, 36 * pulse);
+                grad.addColorStop(0, 'rgba(239, 68, 68, 0.45)');
+                grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+                this.ctx.fillStyle = grad;
+                this.ctx.beginPath();
+                this.ctx.arc(altar.x, altar.y, 36 * pulse, 0, Math.PI * 2);
+                this.ctx.fill();
+              }
+            }
+          });
+        }
+      }
+    }
+
+    // 6. Marchand PNJ
     if (this.dungeon.shopkeeper) {
       const sk = this.dungeon.shopkeeper;
       const tx = Math.floor(sk.x / TILE_SIZE);
       const ty = Math.floor(sk.y / TILE_SIZE);
       if (this.dungeon.discovered[ty]?.[tx] === 1) {
-        const sprite = this.sprites['tile_shopkeeper.png'];
-        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-          this.ctx.drawImage(sprite, sk.x - 16, sk.y - 16, 32, 32);
-        }
+        renderList.push({
+          y: sk.y,
+          render: () => {
+            const sprite = this.sprites['tile_shopkeeper.png'];
+            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+              this.ctx.drawImage(sprite, sk.x - 16, sk.y - 16, 32, 32);
+            }
+          }
+        });
       }
     }
 
-    // 3. Objets au sol (visibles ou découverts)
+    // 7. Butin au sol (Drops)
     for (const drop of this.drops) {
       const dtx = Math.floor(drop.x / TILE_SIZE);
       const dty = Math.floor(drop.y / TILE_SIZE);
       if (this.dungeon.visible[dty]?.[dtx] === 1 || this.dungeon.discovered[dty]?.[dtx] === 1) {
-        drop.draw(this.ctx, this.sprites);
+        renderList.push({
+          y: drop.y,
+          render: () => drop.draw(this.ctx, this.sprites)
+        });
       }
     }
 
-    // 4. Ennemis (uniquement si tuile visible)
+    // 8. Ennemis
     for (const e of this.enemies) {
       const etx = Math.floor(e.x / TILE_SIZE);
       const ety = Math.floor(e.y / TILE_SIZE);
       if (this.dungeon.visible[ety]?.[etx] === 1) {
-        e.draw(this.ctx, this.sprites);
+        renderList.push({
+          y: e.y,
+          render: () => e.draw(this.ctx, this.sprites)
+        });
       }
     }
 
-    // 5. Joueur (toujours visible)
+    // 9. Joueur
     if (this.player) {
-      this.player.draw(this.ctx, this.sprites);
+      renderList.push({
+        y: this.player.y,
+        render: () => this.player.draw(this.ctx, this.sprites)
+      });
     }
 
-    // 6. Projectiles (projectiles ennemis uniquement si tuile visible)
+    // EXÉCUTION DU TRI DE PROFONDEUR 2.5D (Y-SORTING)
+    renderList.sort((a, b) => a.y - b.y);
+    for (let i = 0; i < renderList.length; i++) {
+      renderList[i].render();
+    }
+
+    // ==========================================
+    // COUCHE 3 : EFFETS SUSPENDUS & PROJECTILES
+    // ==========================================
+    // Projectiles
     for (const p of this.projectiles) {
       if (p.isPlayer) {
         p.draw(this.ctx);
@@ -1414,7 +1601,7 @@ class Game {
       }
     }
 
-    // 6b. Ondes de choc actives (anneaux lumineux en expansion)
+    // Ondes de choc actives (anneaux lumineux)
     for (const sw of this.shockwaves) {
       const alpha = Math.max(0, sw.life / sw.maxLife);
       this.ctx.save();
@@ -1429,30 +1616,32 @@ class Game {
       this.ctx.restore();
     }
 
-    // 6c. Système de Particules (impacts, braises, traînées magiques, bulles de poison)
+    // Système de particules
     this.particles.draw(this.ctx);
 
-    // 7. Textes flottants
+    // Textes flottants
     for (const dn of this.damageNumbers) {
       dn.draw(this.ctx);
     }
 
     this.ctx.restore();
 
-    // 8. Vignette d'éclairage atmosphérique sombre centrée sur le joueur (style crypte)
-    const screenPx = this.player ? this.player.x - this.camera.x : this.canvas.width / 2;
-    const screenPy = this.player ? this.player.y - this.camera.y : this.canvas.height / 2;
+    // ==========================================
+    // COUCHE 4 : ÉCLAIRAGE VIGNETTE & CRT ARCADE
+    // ==========================================
+    const screenPx = this.player ? (this.player.x - this.camera.x) * this.zoom : this.canvas.width / 2;
+    const screenPy = this.player ? (this.player.y - this.camera.y) * this.zoom : this.canvas.height / 2;
     const darkVignette = this.ctx.createRadialGradient(
-      screenPx, screenPy, 110,
-      screenPx, screenPy, Math.max(this.canvas.width, this.canvas.height) * 0.78
+      screenPx, screenPy, 140,
+      screenPx, screenPy, Math.max(this.canvas.width, this.canvas.height) * 0.76
     );
     darkVignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    darkVignette.addColorStop(0.65, 'rgba(6, 5, 12, 0.42)');
-    darkVignette.addColorStop(1, 'rgba(2, 2, 6, 0.85)');
+    darkVignette.addColorStop(0.55, 'rgba(6, 5, 12, 0.40)');
+    darkVignette.addColorStop(1, 'rgba(2, 2, 6, 0.88)');
     this.ctx.fillStyle = darkVignette;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // 9. Scanlines rétro discrètes (effet CRT arcade)
+    // Scanlines rétro discrètes (effet moniteur arcade)
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
     for (let y = 0; y < this.canvas.height; y += 3) {
       this.ctx.fillRect(0, y, this.canvas.width, 1);

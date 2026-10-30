@@ -14,23 +14,35 @@
 
     <!-- ATH EN JEU (HUD) -->
     <div id="gameHud" style="display: none;">
-      <!-- Barres de statut du joueur -->
+      <!-- Barres de statut du joueur (Style Gothique Royal V5) -->
       <div class="hud-player-stats">
         <div class="stat-bar-container hp">
+          <div class="stat-medallion hp-medallion">❤</div>
           <div class="stat-bar-label">PV</div>
-          <div class="stat-bar-track"><div id="hpBarFill" class="stat-bar-fill"></div></div>
+          <div class="stat-bar-track">
+            <div id="hpBarFill" class="stat-bar-fill"></div>
+            <span id="hpText" class="stat-bar-val">160 / 160 PV</span>
+          </div>
         </div>
         <div class="stat-bar-container mana">
+          <div class="stat-medallion mana-medallion">✦</div>
           <div class="stat-bar-label">MANA</div>
-          <div class="stat-bar-track"><div id="manaBarFill" class="stat-bar-fill"></div></div>
+          <div class="stat-bar-track">
+            <div id="manaBarFill" class="stat-bar-fill"></div>
+            <span id="manaText" class="stat-bar-val">80 / 80 MANA</span>
+          </div>
         </div>
         <div class="stat-bar-container stamina">
+          <div class="stat-medallion stamina-medallion">⚡</div>
           <div class="stat-bar-label">ENDU</div>
-          <div class="stat-bar-track"><div id="staminaBarFill" class="stat-bar-fill"></div></div>
+          <div class="stat-bar-track">
+            <div id="staminaBarFill" class="stat-bar-fill"></div>
+            <span id="staminaText" class="stat-bar-val">100 / 100 ENDU</span>
+          </div>
         </div>
       </div>
 
-      <!-- Informations d'étage et devises -->
+      <!-- Informations d'étage et devises (Haut Centre) -->
       <div class="hud-center-info">
         <div id="hudFloor" class="hud-badge-floor">Étage 1</div>
         <div class="hud-currencies">
@@ -41,15 +53,6 @@
           <div class="currency-item souls">
             <img src="assets/sprites/item_soul_gem.png" class="currency-icon" />
             <span id="hudSouls">0</span>
-          </div>
-        </div>
-        <!-- Jauge d'Angoisse / Tension V4 -->
-        <div class="hud-tension-container" title="La tension grandit avec le temps, augmentant le péril mais boostant vos récompenses jusqu'à x2.5 !">
-          <div class="tension-label-wrap">
-            <span id="tensionText" class="tension-label">Tension : 0% (Butin x1.0)</span>
-          </div>
-          <div class="tension-track">
-            <div id="tensionBarFill" class="tension-fill"></div>
           </div>
         </div>
       </div>
@@ -75,11 +78,23 @@
         <canvas id="minimapCanvas" width="120" height="120"></canvas>
       </div>
 
-      <!-- Barre de vie du Boss (affichée lors des combats contre le Souverain) -->
+      <!-- Barre de vie du Boss (Positionnée sous les devises à top: 78px sans chevauchement) -->
       <div id="bossHud" style="display: none;">
         <div id="bossName" class="boss-title">LE SOUVERAIN DÉCHU</div>
         <div class="boss-bar-track">
           <div id="bossBarFill" class="boss-bar-fill"></div>
+        </div>
+      </div>
+
+      <!-- JAUGE D'ANGOISSE & TENSION V5 (Style Diablo / Hades 420px au bas de l'écran) -->
+      <div class="hud-bottom-bar">
+        <div class="hud-tension-container" title="La tension grandit avec le temps, augmentant le péril mais boostant vos récompenses jusqu'à x2.5 !">
+          <div class="tension-label-wrap">
+            <span id="tensionText" class="tension-label">TENSION : 0% • DANGER & BUTIN x1.0</span>
+          </div>
+          <div class="tension-track">
+            <div id="tensionBarFill" class="tension-fill"></div>
+          </div>
         </div>
       </div>
 

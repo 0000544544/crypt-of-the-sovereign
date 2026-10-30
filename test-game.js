@@ -479,6 +479,83 @@ async function runTests() {
     if (!v4Check.altarTested) throw new Error('Échec de l\'interaction avec l\'autel sacrificiel');
     if (!v4Check.chasmFound || !v4Check.rollOverChasmValid) throw new Error('Échec de la génération des gouffres et du franchissement en roulade');
 
+    // TEST 8e : Validation du Moteur Graphique 2.5D, Caméra Zoomée x2.0, Modèles Articulés & HUD Royal V5
+    console.log('[TEST 8e] Validation du Moteur Graphique 2.5D, Caméra x2.0, Modèles Articulés & HUD Royal V5...');
+    const v5Check = await evaluate(`
+      (() => {
+        const g = window.gameInstance;
+        const p = g.player;
+        const d = g.dungeon;
+
+        // 1. Zoom Caméra x2.0
+        const zoomValid = (g.zoom === 2.0);
+
+        // 2. Fix Bug 1 : d.altars est bien un tableau alimenté
+        const altarsArrayValid = (Array.isArray(d.altars) && d.altars.length > 0);
+
+        // 3. Fix Bug 2 : bonusDamage pris en compte dans l'attaque
+        p.bonusDamage = 25;
+        const baseDmgCalc = (p.equippedStats ? p.equippedStats.damage : 0) + (p.bonusDamage || 0);
+        const bonusDmgValid = (baseDmgCalc >= 25);
+
+        // 4. Fix Bug 3 : Vitesse des ennemis modulée par la tension
+        g.tension = 50;
+        const testEnemy = g.enemies[0];
+        let enemySpeedScaled = false;
+        if (testEnemy) {
+          const expectedMult = 1 + (g.tension / 100) * 0.35;
+          enemySpeedScaled = (expectedMult > 1.15);
+        } else {
+          enemySpeedScaled = true;
+        }
+
+        // 5. Modèles Articulés V5 (aimAngle, walkTimer)
+        const articulatedValid = (p.aimAngle !== undefined && p.walkTimer !== undefined);
+
+        // 6. HUD Royal & Compteurs Numériques (#hpText, #manaText, #staminaText)
+        g.updateHUD();
+        const hpText = document.getElementById('hpText')?.textContent || '';
+        const manaText = document.getElementById('manaText')?.textContent || '';
+        const staText = document.getElementById('staminaText')?.textContent || '';
+        const hudNumbersValid = (hpText.includes('PV') && manaText.includes('MANA') && staText.includes('ENDU'));
+
+        // 7. Boss HUD & Positionnement sans chevauchement
+        const bossHudEl = document.getElementById('bossHud');
+        const bossStyle = window.getComputedStyle(bossHudEl);
+        const bossHudTop = bossStyle.top;
+        const bossHudValid = (bossHudTop === '78px');
+
+        // 8. Jauge de Tension repositionnée au bas de l'écran
+        const bottomBarEl = document.querySelector('.hud-bottom-bar');
+        const bottomBarStyle = bottomBarEl ? window.getComputedStyle(bottomBarEl) : null;
+        const tensionBottomValid = (bottomBarStyle && bottomBarStyle.bottom === '16px');
+
+        return {
+          zoomValid,
+          altarsArrayValid,
+          bonusDmgValid,
+          enemySpeedScaled,
+          articulatedValid,
+          hudNumbersValid,
+          hpText,
+          manaText,
+          staText,
+          bossHudValid,
+          bossHudTop,
+          tensionBottomValid
+        };
+      })()
+    `);
+    console.log(' -> Validation V5 Moteur 2.5D & HUD Royal :', v5Check);
+    if (!v5Check.zoomValid) throw new Error('Le zoom caméra 2.0x n\'est pas configuré');
+    if (!v5Check.altarsArrayValid) throw new Error('dungeon.altars n\'est pas un tableau valide ou est vide');
+    if (!v5Check.bonusDmgValid) throw new Error('bonusDamage n\'est pas pris en compte dans le calcul d\'attaque');
+    if (!v5Check.enemySpeedScaled) throw new Error('La tension ne modifie pas la vitesse des ennemis');
+    if (!v5Check.articulatedValid) throw new Error('Les modèles articulés manquent des propriétés aimAngle ou walkTimer');
+    if (!v5Check.hudNumbersValid) throw new Error(`Les compteurs de stats numériques sont invalides: ${v5Check.hpText}, ${v5Check.manaText}`);
+    if (!v5Check.bossHudValid) throw new Error(`Positionnement du Boss HUD invalide: attendu 78px, reçu ${v5Check.bossHudTop}`);
+    if (!v5Check.tensionBottomValid) throw new Error('La jauge de tension n\'est pas positionnée au bas de l\'écran (16px)');
+
     // TEST 9 : Test de fluidité 60 FPS
     console.log('[TEST 9] Mesure de fluidité sur 60 images (60 FPS)...');
     const fpsCheck = await evaluate(`

@@ -576,6 +576,8 @@ class Player {
 
     // 3. Déplacement standard
     this.isMoving = (input.moveX !== 0 || input.moveY !== 0);
+    this.walkTimer = (this.walkTimer || 0) + (this.isMoving ? dt * 14 : 0);
+    this.aimAngle = input.aimAngle;
     const currentSpeed = (this.effectiveSpeed || this.speed) * (this.invisibleTimer > 0 ? 1.5 : 1.0);
     const mx = input.moveX * currentSpeed * 60 * dt;
     const my = input.moveY * currentSpeed * 60 * dt;
@@ -605,7 +607,7 @@ class Player {
     this.swingAnim = 1.0;
     this.swingAngle = angle;
 
-    const baseDmg = (this.classDef.primaryAttack.damage + (this.effectiveDamageBonus || 0)) * (this.meta.damageMultiplier || 1);
+    const baseDmg = (this.classDef.primaryAttack.damage + (this.effectiveDamageBonus || 0) + (this.bonusDamage || 0)) * (this.meta.damageMultiplier || 1);
     let isCrit = false;
     let critMult = this.critMultiplier || 2.0;
 
@@ -755,6 +757,7 @@ class Player {
 
     const spriteName = this.classDef.sprite.replace('assets/sprites/', '');
     const sprite = spriteSheet[spriteName];
+    const walkCycle = this.walkTimer || 0;
 
     // Traînée d'images rémanentes (afterimages) pendant la roulade ou l'invisibilité
     for (const ai of this.afterimages) {
@@ -769,14 +772,14 @@ class Player {
       ctx.restore();
     }
 
-    // Rendu ombre portée
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    // 1. Rendu ombre portée 2.5D au sol
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y + 12, 10, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x, this.y + 12, 11, 4.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Rebond de marche (bobbing) et inclinaison dynamique
-    const bob = (this.isMoving && !this.isRolling) ? Math.abs(Math.sin(Date.now() * 0.015)) * 2.5 : 0;
+    const bob = (this.isMoving && !this.isRolling) ? Math.abs(Math.sin(walkCycle)) * 2.5 : 0;
     const tilt = (this.isMoving && !this.isRolling) ? (this.facingLeft ? -0.06 : 0.06) : 0;
 
     // Clignotement de dégât ou invisibilité
@@ -787,12 +790,40 @@ class Player {
       ctx.globalAlpha = 0.45;
     }
 
+    // 2. Rendu de la Cape ondoyante en arrière-plan
+    ctx.save();
+    ctx.translate(this.x, this.y - bob);
+    const capeWiggle = Math.sin(walkCycle * 0.8 + Date.now() * 0.006) * (this.isMoving ? 5 : 2);
+    const capeColor = this.classDef.id === 'knight' ? '#991b1b' : (this.classDef.id === 'mage' ? '#4c1d95' : '#064e3b');
+    ctx.fillStyle = capeColor;
+    ctx.beginPath();
+    ctx.moveTo(-5, -4);
+    ctx.lineTo(5, -4);
+    ctx.lineTo((this.facingLeft ? 7 : -7) + capeWiggle, 13);
+    ctx.lineTo((this.facingLeft ? -3 : -3) + capeWiggle * 0.6, 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // 3. Rendu du Personnage (Corps & Jambes articulées)
+    ctx.save();
     ctx.translate(this.x, this.y - bob);
     if (this.facingLeft) {
       ctx.scale(-1, 1);
     }
     ctx.rotate(tilt);
 
+    // Jambes / Bottes animées en alternance de marche 2.5D
+    const legOffset1 = (this.isMoving && !this.isRolling) ? Math.sin(walkCycle) * 4 : 0;
+    const legOffset2 = (this.isMoving && !this.isRolling) ? -Math.sin(walkCycle) * 4 : 0;
+    const legLift1 = (this.isMoving && !this.isRolling) ? Math.max(0, -Math.cos(walkCycle) * 2) : 0;
+    const legLift2 = (this.isMoving && !this.isRolling) ? Math.max(0, Math.cos(walkCycle) * 2) : 0;
+
+    ctx.fillStyle = '#0f172a'; // Bottes d'armure sombres
+    ctx.fillRect(-7, 8 + legOffset1 - legLift1, 4, 5);
+    ctx.fillRect(3, 8 + legOffset2 - legLift2, 4, 5);
+
+    // Corps / Sprite de base
     if (sprite && sprite.complete && sprite.naturalWidth > 0) {
       ctx.drawImage(sprite, -16, -16, 32, 32);
     } else {
@@ -800,43 +831,121 @@ class Player {
       ctx.fillRect(-12, -12, 24, 24);
     }
 
+    // Visière / Regard qui suit la visée de la souris
+    const aimAng = this.aimAngle || 0;
+    const eyeRelX = (this.facingLeft ? -Math.cos(aimAng) : Math.cos(aimAng)) * 2.5;
+    const eyeRelY = Math.sin(aimAng) * 2;
+    const eyeColor = this.classDef.id === 'knight' ? '#00f0ff' : (this.classDef.id === 'mage' ? '#c084fc' : '#06d6a0');
+    ctx.fillStyle = eyeColor;
+    ctx.fillRect(-2 + eyeRelX, -8 + eyeRelY, 3, 2);
+
     ctx.restore();
 
-    // Véritable arc d'attaque dégradé avec lueur
+    // 4. Arme Tenue en Main & Pivotée en Temps Réel à 360° (Grande Épée, Sceptre ou Dagues)
+    ctx.save();
+    const handX = this.x + (this.facingLeft ? -7 : 7);
+    const handY = this.y + 2 - bob;
+    ctx.translate(handX, handY);
+
+    let weaponAngle = this.aimAngle || 0;
+    if (this.swingAnim > 0) {
+      const swingProgress = 1 - this.swingAnim;
+      const swingSweep = (swingProgress - 0.5) * 2.2;
+      weaponAngle += (this.facingLeft ? -swingSweep : swingSweep);
+    }
+    ctx.rotate(weaponAngle);
+
+    if (this.classDef.id === 'knight') {
+      // Grande Épée Runique
+      // Garde d'or
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(3, -4, 3, 8);
+      // Lame en acier trempé
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(6, -2.5, 20, 5);
+      // Pointe effilée
+      ctx.beginPath();
+      ctx.moveTo(26, -2.5);
+      ctx.lineTo(30, 0);
+      ctx.lineTo(26, 2.5);
+      ctx.closePath();
+      ctx.fill();
+      // Gravure runique luminescente bleu cyan
+      ctx.fillStyle = '#00f0ff';
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = '#00f0ff';
+      ctx.fillRect(9, -0.75, 14, 1.5);
+    } else if (this.classDef.id === 'mage') {
+      // Sceptre Astral
+      // Hampe de bois sombre
+      ctx.fillStyle = '#582f0e';
+      ctx.fillRect(2, -1.5, 22, 3);
+      // Croissant d'or au sommet
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(24, 0, 5, -Math.PI * 0.5, Math.PI * 0.5);
+      ctx.stroke();
+      // Cristal d'Éther flottant au cœur du sceptre
+      ctx.fillStyle = '#c084fc';
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#c084fc';
+      ctx.beginPath();
+      ctx.arc(26, 0, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.classDef.id === 'rogue') {
+      // Doubles Dagues Empoisonnées
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(3, -1.5, 13, 3);
+      ctx.fillStyle = '#06d6a0'; // Lame empoisonnée verte
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = '#06d6a0';
+      ctx.beginPath();
+      ctx.moveTo(16, -1.5);
+      ctx.lineTo(21, 0);
+      ctx.lineTo(16, 1.5);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 5. Traînée lumineuse d'attaque lors du coup
     if (this.swingAnim > 0) {
       ctx.save();
-      const arcRadius = 38;
+      const arcRadius = 40;
       const grad = ctx.createLinearGradient(
-        this.x + Math.cos(this.swingAngle - 0.7) * arcRadius,
-        this.y + Math.sin(this.swingAngle - 0.7) * arcRadius,
-        this.x + Math.cos(this.swingAngle + 0.7) * arcRadius,
-        this.y + Math.sin(this.swingAngle + 0.7) * arcRadius
+        this.x + Math.cos(this.swingAngle - 0.75) * arcRadius,
+        this.y + Math.sin(this.swingAngle - 0.75) * arcRadius,
+        this.x + Math.cos(this.swingAngle + 0.75) * arcRadius,
+        this.y + Math.sin(this.swingAngle + 0.75) * arcRadius
       );
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
       grad.addColorStop(0.5, this.classDef.color);
       grad.addColorStop(1, '#ffffff');
       ctx.strokeStyle = grad;
-      ctx.lineWidth = 4;
-      ctx.shadowBlur = 12;
+      ctx.lineWidth = 4.5;
+      ctx.shadowBlur = 14;
       ctx.shadowColor = this.classDef.color;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, arcRadius, this.swingAngle - 0.75, this.swingAngle + 0.75);
+      ctx.arc(this.x, this.y, arcRadius, this.swingAngle - 0.8, this.swingAngle + 0.8);
       ctx.stroke();
       ctx.restore();
     }
 
-    // Bouclier actif
+    // 6. Bouclier actif
     if (this.shieldHp > 0) {
       ctx.save();
       ctx.strokeStyle = '#00f0ff';
-      ctx.lineWidth = 2;
-      ctx.shadowBlur = 12;
+      ctx.lineWidth = 2.5;
+      ctx.shadowBlur = 14;
       ctx.shadowColor = '#00f0ff';
       ctx.beginPath();
-      ctx.arc(this.x, this.y, 22, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, 23, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
+
+    ctx.restore();
   }
 }
 
@@ -990,8 +1099,14 @@ class Enemy {
     if (this.hitCooldown > 0) this.hitCooldown -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
 
+    // V5 : Vitesse des ennemis indexée sur la Jauge de Tension (Danger dynamique)
+    const tensionVal = (window.gameInstance && window.gameInstance.tension) || 0;
+    const tensionSpeedMult = 1 + (tensionVal / 100) * 0.35;
+    const currentSpeed = this.speed * tensionSpeedMult;
+
     const dist = Math.hypot(player.x - this.x, player.y - this.y);
     const angle = Math.atan2(player.y - this.y, player.x - this.x);
+    this.angleToPlayer = angle;
 
     this.facingLeft = (player.x < this.x);
     this.isMoving = false;
@@ -1006,8 +1121,8 @@ class Enemy {
       // Fonce directement au corps-à-corps
       if (dist < 400) {
         this.isMoving = true;
-        const mx = Math.cos(angle) * this.speed * 60 * dt;
-        const my = Math.sin(angle) * this.speed * 60 * dt;
+        const mx = Math.cos(angle) * currentSpeed * 60 * dt;
+        const my = Math.sin(angle) * currentSpeed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
 
@@ -1020,23 +1135,23 @@ class Enemy {
       if (dist < 140) {
         // Recule vers une zone sûre
         this.isMoving = true;
-        const mx = -Math.cos(angle) * this.speed * 60 * dt;
-        const my = -Math.sin(angle) * this.speed * 60 * dt;
+        const mx = -Math.cos(angle) * currentSpeed * 60 * dt;
+        const my = -Math.sin(angle) * currentSpeed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       } else if (dist > 220 && dist < 420) {
         // S'approche
         this.isMoving = true;
-        const mx = Math.cos(angle) * this.speed * 60 * dt;
-        const my = Math.sin(angle) * this.speed * 60 * dt;
+        const mx = Math.cos(angle) * currentSpeed * 60 * dt;
+        const my = Math.sin(angle) * currentSpeed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       } else if (dist >= 140 && dist <= 220) {
         // Strafe latéral pour contourner et trouver un angle de tir
         this.isMoving = true;
         const strafeAngle = angle + (Math.sin(Date.now() * 0.003) > 0 ? Math.PI / 2 : -Math.PI / 2);
-        const mx = Math.cos(strafeAngle) * (this.speed * 0.7) * 60 * dt;
-        const my = Math.sin(strafeAngle) * (this.speed * 0.7) * 60 * dt;
+        const mx = Math.cos(strafeAngle) * (currentSpeed * 0.7) * 60 * dt;
+        const my = Math.sin(strafeAngle) * (currentSpeed * 0.7) * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       }
@@ -1082,14 +1197,14 @@ class Enemy {
       // Déplacement standard d'approche et recul tactique
       if (dist < 150) {
         this.isMoving = true;
-        const mx = -Math.cos(angle) * this.speed * 60 * dt;
-        const my = -Math.sin(angle) * this.speed * 60 * dt;
+        const mx = -Math.cos(angle) * currentSpeed * 60 * dt;
+        const my = -Math.sin(angle) * currentSpeed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       } else if (dist > 260 && dist < 420) {
         this.isMoving = true;
-        const mx = Math.cos(angle) * this.speed * 60 * dt;
-        const my = Math.sin(angle) * this.speed * 60 * dt;
+        const mx = Math.cos(angle) * currentSpeed * 60 * dt;
+        const my = Math.sin(angle) * currentSpeed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       }
@@ -1119,8 +1234,8 @@ class Enemy {
         if (this.windUpTimer <= 0) {
           this.chargeState = 'charging';
           this.chargeTimer = 0.45;
-          this.chargeVx = Math.cos(angle) * (this.speed * 3.2);
-          this.chargeVy = Math.sin(angle) * (this.speed * 3.2);
+          this.chargeVx = Math.cos(angle) * (currentSpeed * 3.2);
+          this.chargeVy = Math.sin(angle) * (currentSpeed * 3.2);
           soundEngine.playHit();
         }
         return;
@@ -1156,8 +1271,8 @@ class Enemy {
       // Avance inexorablement
       if (dist < 420) {
         this.isMoving = true;
-        const mx = Math.cos(angle) * this.speed * 60 * dt;
-        const my = Math.sin(angle) * this.speed * 60 * dt;
+        const mx = Math.cos(angle) * currentSpeed * 60 * dt;
+        const my = Math.sin(angle) * currentSpeed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
 
@@ -1175,8 +1290,8 @@ class Enemy {
       }
 
       this.isMoving = true;
-      const mx = Math.cos(angle) * this.speed * 60 * dt;
-      const my = Math.sin(angle) * this.speed * 60 * dt;
+      const mx = Math.cos(angle) * currentSpeed * 60 * dt;
+      const my = Math.sin(angle) * currentSpeed * 60 * dt;
       if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
       if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
 
@@ -1304,6 +1419,14 @@ class Enemy {
     const sprite = spriteSheet[this.spriteName];
     const size = this.isBoss ? 56 : 32;
 
+    // Jambes / Pas animés des monstres
+    if (this.isMoving) {
+      const stepOffset = Math.sin(Date.now() * 0.015 + this.x) * 3;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-this.radius * 0.6, this.radius * 0.7 + stepOffset, 3.5, 4);
+      ctx.fillRect(this.radius * 0.3, this.radius * 0.7 - stepOffset, 3.5, 4);
+    }
+
     if (sprite && sprite.complete && sprite.naturalWidth > 0) {
       ctx.drawImage(sprite, -size / 2, -size / 2, size, size);
     } else {
@@ -1311,6 +1434,74 @@ class Enemy {
       ctx.beginPath();
       ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // ÉQUIPEMENT & ARMES ARTICULÉES DES ENNEMIS V5
+    if (this.type === 'archer') {
+      // Arc en os tenu en main orienté vers le joueur
+      ctx.save();
+      const bowAngle = (this.facingLeft ? Math.PI - (this.angleToPlayer || 0) : (this.angleToPlayer || 0));
+      ctx.rotate(bowAngle * 0.4); // Inclinaison subtile vers la cible
+      ctx.strokeStyle = '#d6d3d1';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(8, 0, 9, -Math.PI * 0.4, Math.PI * 0.4);
+      ctx.stroke();
+      // Corde de l'arc et flèche nockée si tir imminent
+      ctx.strokeStyle = '#78716c';
+      ctx.lineWidth = 1;
+      const pull = (this.shootCooldown < 0.6) ? -4 : 0;
+      ctx.beginPath();
+      ctx.moveTo(8 + Math.cos(-Math.PI * 0.4) * 9, Math.sin(-Math.PI * 0.4) * 9);
+      ctx.lineTo(8 + pull, 0);
+      ctx.lineTo(8 + Math.cos(Math.PI * 0.4) * 9, Math.sin(Math.PI * 0.4) * 9);
+      ctx.stroke();
+      if (this.shootCooldown < 0.6) {
+        ctx.fillStyle = '#e0aaff';
+        ctx.fillRect(4, -1, 10, 2);
+      }
+      ctx.restore();
+    } else if (this.type === 'tank') {
+      // Grand Pavois / Bouclier de Tour d'Acier et d'Or
+      ctx.save();
+      ctx.fillStyle = '#334155';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.rect(7, -10, 6, 20);
+      ctx.fill();
+      ctx.stroke();
+      // Boss central du bouclier
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.arc(10, 0, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (this.type === 'boss') {
+      // Lames spectrales éthérées en orbite autour du Souverain Déchu
+      ctx.save();
+      const bladeTime = Date.now() * 0.003;
+      for (let b = 0; b < 4; b++) {
+        const bladeOrbit = bladeTime + (b * Math.PI * 0.5);
+        const bx = Math.cos(bladeOrbit) * 36;
+        const by = Math.sin(bladeOrbit) * 36;
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.rotate(bladeOrbit + Math.PI / 2);
+        // Lame spectrale violette / cramoisie lumineuse
+        ctx.fillStyle = '#c084fc';
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = '#c084fc';
+        ctx.beginPath();
+        ctx.moveTo(0, -10);
+        ctx.lineTo(3.5, 6);
+        ctx.lineTo(0, 10);
+        ctx.lineTo(-3.5, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
     }
 
     // INDICATEURS D'ÉTATS MASSIFS V4

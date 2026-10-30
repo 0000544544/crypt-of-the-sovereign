@@ -67,6 +67,7 @@ class DungeonFloor {
     this.shopkeeper = null;
     this.stairs = null;
     this.torches = [];
+    this.altars = [];
     this.altar = null;
     this.gauntlet = null;
     this.destructibles = [];
@@ -311,15 +312,18 @@ class DungeonFloor {
     }
 
     // 4. Autel de pacte (Risk/Reward)
+    this.altars = [];
     if (this.altarRoom) {
       const ar = this.altarRoom;
-      this.altar = {
+      const altarObj = {
         x: ar.cx * TILE_SIZE + TILE_SIZE / 2,
         y: ar.cy * TILE_SIZE + TILE_SIZE / 2,
         used: false,
         pact: Math.random() < 0.5 ? 'power' : 'legendary',
         costHp: 20
       };
+      this.altars.push(altarObj);
+      this.altar = altarObj;
     }
 
     // 5. Salle de Défi (Gauntlet)
