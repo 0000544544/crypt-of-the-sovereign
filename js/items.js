@@ -144,6 +144,79 @@ const LEGENDARY_PASSIVES = [
   'Tempête d\'Âmes : +25% de dégâts pour chaque ennemi tué dans la salle'
 ];
 
+const RUNES_CONFIG = {
+  rune_fire: {
+    id: 'rune_fire',
+    name: 'Rune de Flammes Éternelles',
+    type: 'rune',
+    sprite: 'assets/sprites/item_rune_fire.png',
+    color: '#ff5400',
+    desc: 'Ajoute 15 dégâts de brûlure sur la durée (DoT de feu) à chaque impact.',
+    stats: { fireBurn: 15 },
+    price: 90
+  },
+  rune_lifesteal: {
+    id: 'rune_lifesteal',
+    name: 'Rune de Sang Abyssal',
+    type: 'rune',
+    sprite: 'assets/sprites/item_rune_lifesteal.png',
+    color: '#d90429',
+    desc: 'Confère +6% de vol de vie (soins basés sur les dégâts infligés).',
+    stats: { lifesteal: 0.06 },
+    price: 110
+  },
+  rune_haste: {
+    id: 'rune_haste',
+    name: 'Rune de Tempête Céleste',
+    type: 'rune',
+    sprite: 'assets/sprites/item_rune_haste.png',
+    color: '#ffb703',
+    desc: '+15% de vitesse de déplacement et vélocité martiale.',
+    stats: { speed: 0.45 },
+    price: 85
+  },
+  rune_frost: {
+    id: 'rune_frost',
+    name: 'Rune du Zéro Absolu',
+    type: 'rune',
+    sprite: 'assets/sprites/item_rune_frost.png',
+    color: '#38bdf8',
+    desc: '25% de chance de geler les ennemis touchés pendant 1.5s.',
+    stats: { frostChance: 0.25 },
+    price: 95
+  },
+  gem_ruby: {
+    id: 'gem_ruby',
+    name: 'Rubis de Vitalité Pure',
+    type: 'gem',
+    sprite: 'assets/sprites/item_gem_ruby.png',
+    color: '#ef233c',
+    desc: '+35 Points de Vie Maximum.',
+    stats: { hp: 35 },
+    price: 70
+  },
+  gem_sapphire: {
+    id: 'gem_sapphire',
+    name: 'Saphir Astral Luminescent',
+    type: 'gem',
+    sprite: 'assets/sprites/item_gem_sapphire.png',
+    color: '#3b82f6',
+    desc: '+35 Points de Mana Maximum et +1.5 Regen Mana.',
+    stats: { mana: 35, manaRegen: 1.5 },
+    price: 70
+  },
+  gem_emerald: {
+    id: 'gem_emerald',
+    name: 'Émeraude du Faucon',
+    type: 'gem',
+    sprite: 'assets/sprites/item_gem_emerald.png',
+    color: '#10b981',
+    desc: '+10% de Chance de Coup Critique.',
+    stats: { crit: 0.10 },
+    price: 75
+  }
+};
+
 class ItemGenerator {
   static createItem(floor = 1, forceRarity = null, forceType = null) {
     // 1. Détermination de la rareté
@@ -199,6 +272,12 @@ class ItemGenerator {
       legendaryEffect = LEGENDARY_PASSIVES[Math.floor(Math.random() * LEGENDARY_PASSIVES.length)];
     }
 
+    // Emplacements de Châsses (Sockets) pour Runes & Gemmes
+    let maxSockets = 0;
+    if (rarityKey === 'rare') maxSockets = 1;
+    else if (rarityKey === 'epic') maxSockets = 2;
+    else if (rarityKey === 'legendary') maxSockets = 3;
+
     return {
       id: 'item_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
       name: fullName,
@@ -208,7 +287,26 @@ class ItemGenerator {
       desc: template.desc,
       stats,
       price: Math.round(rarity.price * (1 + (floor - 1) * 0.2)),
-      legendaryEffect
+      legendaryEffect,
+      maxSockets,
+      sockets: [] // Contiendra les runes/gemmes serties
+    };
+  }
+
+  static createRuneOrGem(floor = 1) {
+    const keys = Object.keys(RUNES_CONFIG);
+    const chosenKey = keys[Math.floor(Math.random() * keys.length)];
+    const def = RUNES_CONFIG[chosenKey];
+    return {
+      id: 'rune_' + Date.now() + '_' + Math.floor(Math.random() * 10000),
+      name: def.name,
+      type: def.type,
+      rarity: def.type === 'gem' ? 'rare' : 'epic',
+      sprite: def.sprite,
+      desc: def.desc,
+      stats: { ...def.stats },
+      color: def.color,
+      price: Math.round(def.price * (1 + (floor - 1) * 0.15))
     };
   }
 
@@ -293,6 +391,33 @@ class InventoryManager {
     return true;
   }
 
+  // Sertissage d'une rune ou gemme dans un objet ayant des châsses libres
+  socketRune(targetItem, runeItem) {
+    if (!targetItem || !runeItem) return false;
+    if (!['weapon', 'armor', 'ring'].includes(targetItem.type)) return false;
+    if (!['rune', 'gem'].includes(runeItem.type)) return false;
+    if (!targetItem.sockets) targetItem.sockets = [];
+    if (targetItem.sockets.length >= (targetItem.maxSockets || 0)) return false;
+
+    // Retirer la rune du sac
+    const idx = this.bag.indexOf(runeItem);
+    if (idx !== -1) {
+      this.bag.splice(idx, 1);
+    }
+    targetItem.sockets.push(runeItem);
+    return true;
+  }
+
+  // Dessertir toutes les runes/gemmes d'un objet (rendu au sac)
+  unsocketRunes(item) {
+    if (!item || !item.sockets || item.sockets.length === 0) return false;
+    while (item.sockets.length > 0 && this.bag.length < this.maxBagSlots) {
+      const r = item.sockets.pop();
+      this.bag.push(r);
+    }
+    return true;
+  }
+
   unequip(slotType) {
     const item = this.equipped[slotType];
     if (!item) return false;
@@ -336,12 +461,16 @@ class InventoryManager {
       crit: 0,
       manaRegen: 0,
       soulBonus: 0,
+      fireBurn: 0,
+      lifesteal: 0,
+      frostChance: 0,
       passives: []
     };
 
     for (const slot of ['weapon', 'armor', 'ring']) {
       const item = this.equipped[slot];
       if (item && item.stats) {
+        // Stats de base
         for (const [k, v] of Object.entries(item.stats)) {
           if (net[k] !== undefined) {
             net[k] += v;
@@ -349,6 +478,19 @@ class InventoryManager {
         }
         if (item.legendaryEffect) {
           net.passives.push(item.legendaryEffect);
+        }
+
+        // Stats des Runes & Gemmes serties dans l'objet
+        if (item.sockets && item.sockets.length > 0) {
+          for (const s of item.sockets) {
+            if (s && s.stats) {
+              for (const [sk, sv] of Object.entries(s.stats)) {
+                if (net[sk] !== undefined) {
+                  net[sk] += sv;
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -360,3 +502,4 @@ class InventoryManager {
 window.ItemGenerator = ItemGenerator;
 window.InventoryManager = InventoryManager;
 window.ITEM_RARITIES = ITEM_RARITIES;
+window.RUNES_CONFIG = RUNES_CONFIG;

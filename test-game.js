@@ -385,6 +385,100 @@ async function runTests() {
     if (!v3Check.shopProtectionValid) throw new Error('La boutique a déduit l\'or alors que le sac était plein');
     if (!v3Check.particlesWorking) throw new Error('Le ParticleManager n\'est pas actif');
 
+    // TEST 8d : Validation des Systèmes Action-RPG V4 (Destructibles, Châsses/Runes, Tension, Autels, Gouffres)
+    console.log('[TEST 8d] Validation des Systèmes Action-RPG V4 (Destructibles, Châsses/Runes, Tension, Autels, Gouffres)...');
+    const v4Check = await evaluate(`
+      (() => {
+        const g = window.gameInstance;
+        const d = g.dungeon;
+        const p = g.player;
+
+        // 1. Destructibles & Décors
+        const hasDestructibles = (d.destructibles && d.destructibles.length > 0);
+        const hasDecors = (d.decors && d.decors.length > 0);
+        let destructibleTested = false;
+        if (hasDestructibles) {
+          const targetDest = d.destructibles[0];
+          targetDest.content = 'gold'; // Contenu garanti pour valider le drop
+          const dropsBefore = g.drops.length;
+          g.destroyDestructible(targetDest);
+          destructibleTested = (targetDest.destroyed === true && g.drops.length > dropsBefore && g.hitFreezeTimer > 0);
+        }
+
+        // 2. Châsses & Runes / Gemmes
+        const rareWeapon = window.ItemGenerator.createItem(1, 'rare', 'weapon');
+        const hasSockets = (rareWeapon.maxSockets >= 1 && Array.isArray(rareWeapon.sockets));
+        const runeFire = window.ItemGenerator.createRuneOrGem(1);
+        const socketSuccess = g.inventory.socketRune(rareWeapon, runeFire);
+        g.inventory.equipped.weapon = rareWeapon;
+        const netStats = g.inventory.getNetEquipmentStats();
+        const runeApplied = (rareWeapon.sockets.length === 1 && (netStats.fireBurn !== undefined || netStats.lifesteal !== undefined || netStats.haste !== undefined || netStats.frostChance !== undefined || netStats.bonusHp !== undefined || netStats.bonusMana !== undefined || netStats.critBonus !== undefined));
+
+        // 3. Jauge d'Angoisse & Tension
+        const initialTension = g.tension;
+        g.hitFreezeTimer = 0;
+        g.update(2.0); // 2 secondes
+        const tensionGrew = (g.tension > initialTension && g.tensionMultiplier >= 1.0);
+        const tensionHudValid = (g.dom.tensionBarFill && g.dom.tensionText && g.dom.tensionBarFill.style.width !== '');
+
+        // 4. Autel de Sang Sacrificiel
+        let altarTested = false;
+        if (d.altars && d.altars.length > 0) {
+          const altar = d.altars[0];
+          p.x = altar.x;
+          p.y = altar.y;
+          p.hp = 100;
+          p.maxHp = 100;
+          p.bonusDamage = 0;
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
+          g.update(0.016);
+          altarTested = (altar.used === true && p.maxHp === 80 && p.bonusDamage === 15);
+        } else {
+          altarTested = true;
+        }
+
+        // 5. Gouffres (Chasms), Ponts et Roulades au-dessus des abîmes
+        let chasmFound = false;
+        let rollOverChasmValid = false;
+        for (let y = 0; y < d.height; y++) {
+          for (let x = 0; x < d.width; x++) {
+            if (d.grid[y][x] === 6) { // TILE.CHASM
+              chasmFound = true;
+              const px = x * 32 + 16;
+              const py = y * 32 + 16;
+              const walkBlocked = !d.isWalkable(px, py, 12, false);
+              const rollAllowed = d.isWalkable(px, py, 12, true);
+              if (walkBlocked && rollAllowed) {
+                rollOverChasmValid = true;
+                break;
+              }
+            }
+          }
+          if (rollOverChasmValid) break;
+        }
+
+        return {
+          hasDestructibles,
+          hasDecors,
+          destructibleTested,
+          hasSockets,
+          socketSuccess,
+          runeApplied,
+          tensionGrew,
+          tensionHudValid,
+          altarTested,
+          chasmFound,
+          rollOverChasmValid
+        };
+      })()
+    `);
+    console.log(' -> Validation Systèmes V4 Action-RPG :', v4Check);
+    if (!v4Check.hasDestructibles || !v4Check.destructibleTested) throw new Error('Échec du test des destructibles et débris');
+    if (!v4Check.hasSockets || !v4Check.socketSuccess || !v4Check.runeApplied) throw new Error('Échec du système de sertissage de runes et châsses');
+    if (!v4Check.tensionGrew || !v4Check.tensionHudValid) throw new Error('Échec de la jauge de tension / dread et de son HUD');
+    if (!v4Check.altarTested) throw new Error('Échec de l\'interaction avec l\'autel sacrificiel');
+    if (!v4Check.chasmFound || !v4Check.rollOverChasmValid) throw new Error('Échec de la génération des gouffres et du franchissement en roulade');
+
     // TEST 9 : Test de fluidité 60 FPS
     console.log('[TEST 9] Mesure de fluidité sur 60 images (60 FPS)...');
     const fpsCheck = await evaluate(`

@@ -271,6 +271,10 @@ class SoundEngine {
     osc.stop(now + 0.1);
   }
 
+  playEnemyHit() {
+    this.playHit();
+  }
+
   playEnemyDeath() {
     this.init(); this.resume();
     if (!this.ctx) return;

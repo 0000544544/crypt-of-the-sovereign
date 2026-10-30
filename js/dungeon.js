@@ -12,7 +12,9 @@ const TILE = {
   WALL: 2,
   DOOR_CLOSED: 3,
   DOOR_OPEN: 4,
-  STAIRS: 5
+  STAIRS: 5,
+  CHASM: 6,
+  BRIDGE: 7
 };
 
 class Room {
@@ -56,6 +58,8 @@ class DungeonFloor {
     this.bossRoom = null;
     this.treasureRoom = null;
     this.shopRoom = null;
+    this.altarRoom = null;
+    this.gauntletRoom = null;
 
     // Entités interactives spécifiques au donjon
     this.chests = [];
@@ -63,17 +67,21 @@ class DungeonFloor {
     this.shopkeeper = null;
     this.stairs = null;
     this.torches = [];
+    this.altar = null;
+    this.gauntlet = null;
+    this.destructibles = [];
+    this.decors = [];
 
     this.generate();
   }
 
   generate() {
-    const maxAttempts = 50;
-    const targetRoomCount = 7 + Math.min(4, Math.floor(this.floorNumber / 2));
+    const maxAttempts = 60;
+    const targetRoomCount = 9 + Math.min(4, Math.floor(this.floorNumber / 2));
 
     for (let attempt = 0; attempt < maxAttempts && this.rooms.length < targetRoomCount; attempt++) {
-      const rw = Math.floor(Math.random() * 5) + 7; // 7 à 11 tiles
-      const rh = Math.floor(Math.random() * 5) + 7;
+      const rw = Math.floor(Math.random() * 5) + 8; // 8 à 12 tiles
+      const rh = Math.floor(Math.random() * 5) + 8;
       const rx = Math.floor(Math.random() * (this.width - rw - 6)) + 3;
       const ry = Math.floor(Math.random() * (this.height - rh - 6)) + 3;
 
@@ -113,7 +121,7 @@ class DungeonFloor {
     this.bossRoom.w = Math.min(13, this.bossRoom.w + 2);
     this.bossRoom.h = Math.min(13, this.bossRoom.h + 2);
 
-    // Assigner Trésor, Marchand, Pièges
+    // Assigner Trésor, Marchand, Pièges, Autel de pacte et Salle de défi (Gauntlet)
     const remainingRooms = this.rooms.filter(r => r !== this.startRoom && r !== this.bossRoom);
     if (remainingRooms.length > 0) {
       this.treasureRoom = remainingRooms.shift();
@@ -126,6 +134,14 @@ class DungeonFloor {
     if (remainingRooms.length > 0) {
       const trapRoom = remainingRooms.shift();
       trapRoom.type = 'trap';
+    }
+    if (remainingRooms.length > 0) {
+      this.altarRoom = remainingRooms.shift();
+      this.altarRoom.type = 'altar';
+    }
+    if (remainingRooms.length > 0) {
+      this.gauntletRoom = remainingRooms.shift();
+      this.gauntletRoom.type = 'gauntlet';
     }
 
     // Creuser les salles dans la grille
@@ -147,11 +163,34 @@ class DungeonFloor {
       this.carveCorridor(rLast.cx, rLast.cy, rMid.cx, rMid.cy);
     }
 
+    // Introduire des gouffres (chasms) et ponts de pierre dans une salle de combat
+    this.carveChasms();
+
     // Construire les murs entourant les sols
     this.buildWalls();
 
     // Placer les entités d'environnement
     this.populateEnvironment();
+  }
+
+  carveChasms() {
+    // Sélectionne 1 ou 2 salles de combat pour y insérer des gouffres avec ponts
+    const combatRooms = this.rooms.filter(r => r.type === 'combat' && r.w >= 9 && r.h >= 9);
+    if (combatRooms.length === 0) return;
+
+    const targetRoom = combatRooms[0];
+    const midY = Math.floor(targetRoom.y + targetRoom.h / 2);
+    // Gouffre horizontal de 2 tiles de haut coupant la salle en deux
+    for (let x = targetRoom.x + 1; x < targetRoom.x + targetRoom.w - 1; x++) {
+      for (let y = midY - 1; y <= midY; y++) {
+        // Laisser 2 tiles au centre pour le pont de pierre
+        if (x === targetRoom.cx || x === targetRoom.cx + 1) {
+          this.grid[y][x] = TILE.BRIDGE;
+        } else {
+          this.grid[y][x] = TILE.CHASM;
+        }
+      }
+    }
   }
 
   carveRoom(room) {
@@ -264,13 +303,92 @@ class DungeonFloor {
         items: [
           ItemGenerator.createItem(this.floorNumber, 'rare'),
           ItemGenerator.createItem(this.floorNumber, 'epic'),
+          ItemGenerator.createRuneOrGem(this.floorNumber),
           ItemGenerator.createHealthPotion(),
           ItemGenerator.createManaPotion()
         ]
       };
     }
 
-    // 4. Pièges au sol
+    // 4. Autel de pacte (Risk/Reward)
+    if (this.altarRoom) {
+      const ar = this.altarRoom;
+      this.altar = {
+        x: ar.cx * TILE_SIZE + TILE_SIZE / 2,
+        y: ar.cy * TILE_SIZE + TILE_SIZE / 2,
+        used: false,
+        pact: Math.random() < 0.5 ? 'power' : 'legendary',
+        costHp: 20
+      };
+    }
+
+    // 5. Salle de Défi (Gauntlet)
+    if (this.gauntletRoom) {
+      const gr = this.gauntletRoom;
+      this.gauntlet = {
+        x: gr.cx * TILE_SIZE + TILE_SIZE / 2,
+        y: gr.cy * TILE_SIZE + TILE_SIZE / 2,
+        room: gr,
+        active: false,
+        started: false,
+        cleared: false,
+        timer: 15,
+        maxTimer: 15,
+        wavesRemaining: 2,
+        chestSpawned: false
+      };
+    }
+
+    // 6. Objets destructibles (Tonneaux & Urnes) placés dans les salles
+    for (const r of this.rooms) {
+      if (r.type === 'start') continue;
+      const destCount = Math.floor(Math.random() * 3) + 2; // 2 à 4 destructibles par salle
+      for (let i = 0; i < destCount; i++) {
+        const dx = r.x + 1 + Math.floor(Math.random() * (r.w - 2));
+        const dy = r.y + 1 + Math.floor(Math.random() * (r.h - 2));
+        // Éviter de placer sur les escaliers ou centres
+        if (this.grid[dy]?.[dx] === TILE.FLOOR) {
+          const isUrn = Math.random() < 0.5;
+          const contentRoll = Math.random();
+          let content = 'gold';
+          if (contentRoll < 0.35) content = 'gold';
+          else if (contentRoll < 0.6) content = 'souls';
+          else if (contentRoll < 0.75) content = 'rune';
+          else if (contentRoll < 0.9) content = 'trap_gas';
+          else content = 'empty';
+
+          this.destructibles.push({
+            id: 'dest_' + Math.random(),
+            x: dx * TILE_SIZE + TILE_SIZE / 2,
+            y: dy * TILE_SIZE + TILE_SIZE / 2,
+            radius: 12,
+            type: isUrn ? 'urn' : 'barrel',
+            hp: 10,
+            maxHp: 10,
+            content
+          });
+        }
+      }
+    }
+
+    // 7. Éléments d'ambiance et encombrement visuel au sol (Visual Clutter)
+    for (const r of this.rooms) {
+      const decorCount = Math.floor(Math.random() * 3) + 2;
+      const decorTypes = ['bones', 'chains', 'puddle'];
+      for (let i = 0; i < decorCount; i++) {
+        const dx = r.x + 1 + Math.floor(Math.random() * (r.w - 2));
+        const dy = r.y + 1 + Math.floor(Math.random() * (r.h - 2));
+        if (this.grid[dy]?.[dx] === TILE.FLOOR) {
+          this.decors.push({
+            x: dx * TILE_SIZE + TILE_SIZE / 2,
+            y: dy * TILE_SIZE + TILE_SIZE / 2,
+            type: decorTypes[Math.floor(Math.random() * decorTypes.length)]
+          });
+        }
+      }
+    }
+
+    // 8. Pièges au sol
     for (const r of this.rooms) {
       if (r.type === 'trap') {
         for (let py = r.y + 1; py < r.y + r.h - 1; py += 2) {
@@ -287,7 +405,7 @@ class DungeonFloor {
       }
     }
 
-    // 5. Flambeaux muraux
+    // 9. Flambeaux muraux
     for (const r of this.rooms) {
       this.torches.push({
         x: (r.x + 1) * TILE_SIZE,
@@ -302,7 +420,7 @@ class DungeonFloor {
     }
   }
 
-  isWalkable(pixelX, pixelY, radius = 10) {
+  isWalkable(pixelX, pixelY, radius = 10, allowChasm = false) {
     // Vérifie les 4 coins de la boîte de collision
     const testPoints = [
       [pixelX - radius, pixelY - radius],
@@ -319,8 +437,25 @@ class DungeonFloor {
       if (t === TILE.WALL || t === TILE.VOID || t === TILE.DOOR_CLOSED) {
         return false;
       }
+      if (t === TILE.CHASM && !allowChasm) {
+        return false;
+      }
     }
     return true;
+  }
+
+  isChasm(pixelX, pixelY) {
+    const tx = Math.floor(pixelX / TILE_SIZE);
+    const ty = Math.floor(pixelY / TILE_SIZE);
+    if (tx < 0 || tx >= this.width || ty < 0 || ty >= this.height) return false;
+    return this.grid[ty][tx] === TILE.CHASM;
+  }
+
+  isBridge(pixelX, pixelY) {
+    const tx = Math.floor(pixelX / TILE_SIZE);
+    const ty = Math.floor(pixelY / TILE_SIZE);
+    if (tx < 0 || tx >= this.width || ty < 0 || ty >= this.height) return false;
+    return this.grid[ty][tx] === TILE.BRIDGE;
   }
 
   updateFog(playerX, playerY, sightRadius = 240) {

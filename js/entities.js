@@ -48,6 +48,7 @@ class Particle {
 class ParticleManager {
   constructor() {
     this.particles = [];
+    this.bloodSplats = []; // Gore persistant au sol
   }
 
   addHitSpark(x, y, color = '#f59e0b', count = 8) {
@@ -82,6 +83,82 @@ class ParticleManager {
         40
       ));
     }
+    // Ajout de gore persistant au sol lors d'une mise à mort
+    this.addBloodSplat(x, y, color, 8);
+  }
+
+  // Éclaboussures de sang pixelisé persistant sur les dalles de la crypte
+  addBloodSplat(x, y, color = '#991b1b', count = 6) {
+    for (let i = 0; i < count; i++) {
+      const offX = (Math.random() - 0.5) * 26;
+      const offY = (Math.random() - 0.5) * 20;
+      this.bloodSplats.push({
+        x: x + offX,
+        y: y + offY,
+        w: Math.floor(Math.random() * 4) + 2,
+        h: Math.floor(Math.random() * 3) + 2,
+        color: Math.random() < 0.3 ? '#7f1d1d' : color,
+        alpha: 0.85,
+        life: 45 // Reste au sol 45 secondes
+      });
+    }
+    // Limite le nombre de taches pour maintenir 60 FPS constants
+    if (this.bloodSplats.length > 250) {
+      this.bloodSplats.splice(0, this.bloodSplats.length - 250);
+    }
+  }
+
+  // Débris lors de la destruction de tonneaux ou urnes
+  addDebrisBurst(x, y, type = 'barrel', count = 16) {
+    const palette = type === 'barrel'
+      ? ['#78350f', '#92400e', '#582f0e', '#334155']
+      : ['#b07d62', '#7f4f24', '#ffd166', '#d97706'];
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 3.5 + 1.0;
+      const color = palette[Math.floor(Math.random() * palette.length)];
+      this.particles.push(new Particle(
+        x, y,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        color,
+        Math.random() * 3.5 + 2,
+        0.4 + Math.random() * 0.3,
+        'square',
+        30
+      ));
+    }
+  }
+
+  // Nuage toxique de gaz acide émis par les urnes piégées
+  addAcidCloud(x, y, count = 20) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 1.5;
+      this.particles.push(new Particle(
+        x + (Math.random() * 12 - 6),
+        y + (Math.random() * 12 - 6),
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed - 0.4,
+        Math.random() < 0.5 ? '#10b981' : '#059669',
+        Math.random() * 4 + 3,
+        0.8 + Math.random() * 0.4,
+        'circle'
+      ));
+    }
+  }
+
+  addFlame(x, y) {
+    this.particles.push(new Particle(
+      x + (Math.random() * 8 - 4),
+      y - (Math.random() * 8),
+      (Math.random() - 0.5) * 0.3,
+      -(Math.random() * 0.8 + 0.6),
+      Math.random() < 0.5 ? '#ff5400' : '#ff9e00',
+      Math.random() * 3 + 2,
+      0.35,
+      'circle'
+    ));
   }
 
   addTorchEmber(x, y) {
@@ -130,6 +207,29 @@ class ParticleManager {
       if (p.life <= 0) {
         this.particles.splice(i, 1);
       }
+    }
+
+    // Mise à jour des taches de sang au sol
+    for (let i = this.bloodSplats.length - 1; i >= 0; i--) {
+      const bs = this.bloodSplats[i];
+      bs.life -= dt;
+      if (bs.life < 5) {
+        bs.alpha = Math.max(0, bs.life / 5) * 0.85;
+      }
+      if (bs.life <= 0) {
+        this.bloodSplats.splice(i, 1);
+      }
+    }
+  }
+
+  drawSplats(ctx) {
+    for (let i = 0; i < this.bloodSplats.length; i++) {
+      const bs = this.bloodSplats[i];
+      ctx.save();
+      ctx.globalAlpha = bs.alpha;
+      ctx.fillStyle = bs.color;
+      ctx.fillRect(Math.round(bs.x), Math.round(bs.y), bs.w, bs.h);
+      ctx.restore();
     }
   }
 
@@ -330,6 +430,12 @@ class Player {
     this.afterimages = [];
     this.afterimageTimer = 0;
     this.isMoving = false;
+    this.squashTimer = 0;
+
+    // Runes & Gemmes
+    this.fireBurn = 0;
+    this.lifesteal = 0;
+    this.frostChance = 0;
   }
 
   applyEquipmentStats(equipmentStats) {
@@ -339,6 +445,11 @@ class Player {
     this.effectiveSpeed = this.speed + (equipmentStats.speed || 0);
     this.effectiveManaRegen = this.manaRegen + (equipmentStats.manaRegen || 0);
     this.passives = equipmentStats.passives || [];
+
+    // Effets des Runes serties
+    this.fireBurn = equipmentStats.fireBurn || 0;
+    this.lifesteal = equipmentStats.lifesteal || 0;
+    this.frostChance = equipmentStats.frostChance || 0;
 
     // Recalcule maxHp, maxMana et soulBonus
     const prevMaxHp = this.maxHp;
@@ -367,6 +478,7 @@ class Player {
     if (this.rollCooldown > 0) this.rollCooldown -= dt;
     if (this.hitCooldown > 0) this.hitCooldown -= dt;
     if (this.swingAnim > 0) this.swingAnim -= dt * 4;
+    if (this.squashTimer > 0) this.squashTimer -= dt;
 
     // Bouclier & Invisibilité
     if (this.shieldTimer > 0) {
@@ -397,15 +509,15 @@ class Player {
       }
     }
 
-    // 2. Gestion de la Roulade / Esquive
+    // 2. Gestion de la Roulade / Esquive (traverse gouffres/chasms)
     if (this.isRolling) {
       this.rollTimer -= dt;
       const rollSpeed = this.speed * (this.classDef.roll.speedMult || 2.0) * 60 * dt;
       const nextX = this.x + this.rollDirX * rollSpeed;
       const nextY = this.y + this.rollDirY * rollSpeed;
 
-      if (dungeon.isWalkable(nextX, this.y, this.radius)) this.x = nextX;
-      if (dungeon.isWalkable(this.x, nextY, this.radius)) this.y = nextY;
+      if (dungeon.isWalkable(nextX, this.y, this.radius, true)) this.x = nextX;
+      if (dungeon.isWalkable(this.x, nextY, this.radius, true)) this.y = nextY;
 
       if (this.rollTimer <= 0) {
         this.isRolling = false;
@@ -433,7 +545,7 @@ class Player {
         for (let step = 10; step <= blinkDist; step += 10) {
           const testX = this.x + rdx * step;
           const testY = this.y + rdy * step;
-          if (dungeon.isWalkable(testX, testY, this.radius)) {
+          if (dungeon.isWalkable(testX, testY, this.radius, true)) {
             finalX = testX;
             finalY = testY;
           } else {
@@ -749,6 +861,19 @@ class Enemy {
     this.facingLeft = false;
     this.isMoving = false;
 
+    // Juice, animations & Tactiques avancées V4
+    this.squashTimer = 0;
+    this.windUpTimer = 0;
+    this.burnTimer = 0;
+    this.burnDps = 0;
+    this.isGuarding = false;
+    this.barrierHp = 0;
+    this.blinkCooldown = 0;
+    this.chargeState = 'idle'; // 'idle', 'windup', 'charging', 'cooldown'
+    this.chargeTimer = 0;
+    this.chargeVx = 0;
+    this.chargeVy = 0;
+
     // État spécifique du Boss
     if (this.isBoss) {
       this.bossPhase = 1;
@@ -821,17 +946,35 @@ class Enemy {
   update(dt, player, dungeon, soundEngine, projectiles, damageNumbers) {
     if (this.hp <= 0) return;
 
-    // Gestion du gel & poison
+    if (this.squashTimer > 0) this.squashTimer -= dt;
+    if (this.windUpTimer > 0) this.windUpTimer -= dt;
+    if (this.blinkCooldown > 0) this.blinkCooldown -= dt;
+
+    // Gestion du gel & étourdissement
     if (this.freezeTimer > 0) {
       this.freezeTimer -= dt;
       return; // Immobilisé
     }
 
+    // Gestion du poison DoT
     if (this.poisonTimer > 0) {
       this.poisonTimer -= dt;
       this.hp -= this.poisonDps * dt;
       if (Math.random() < 0.15) {
         damageNumbers.push(new DamageNumber(this.x, this.y - 10, `${Math.round(this.poisonDps)}`, '#10b981'));
+      }
+      if (this.hp <= 0) {
+        soundEngine.playEnemyDeath();
+        return;
+      }
+    }
+
+    // Gestion de la brûlure DoT (Rune de Feu)
+    if (this.burnTimer > 0) {
+      this.burnTimer -= dt;
+      this.hp -= (this.burnDps || 12) * dt;
+      if (Math.random() < 0.2) {
+        damageNumbers.push(new DamageNumber(this.x, this.y - 14, `${Math.round(this.burnDps || 12)}`, '#ff5400'));
       }
       if (this.hp <= 0) {
         soundEngine.playEnemyDeath();
@@ -858,7 +1001,7 @@ class Enemy {
     const ety = Math.floor(this.y / TILE_SIZE);
     const isVisibleToPlayer = (dungeon.visible[ety]?.[etx] === 1);
 
-    // IA selon le type
+    // IA SELON LE TYPE AVEC TACTIQUES AVANCÉES
     if (this.type === 'swarmer') {
       // Fonce directement au corps-à-corps
       if (dist < 400) {
@@ -873,9 +1016,9 @@ class Enemy {
         }
       }
     } else if (this.type === 'archer') {
-      // Garde une distance d'environ 180px et tire
+      // Archer tactique : cherche des lignes de tir puis recule ou strafe
       if (dist < 140) {
-        // Recule
+        // Recule vers une zone sûre
         this.isMoving = true;
         const mx = -Math.cos(angle) * this.speed * 60 * dt;
         const my = -Math.sin(angle) * this.speed * 60 * dt;
@@ -888,11 +1031,20 @@ class Enemy {
         const my = Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
+      } else if (dist >= 140 && dist <= 220) {
+        // Strafe latéral pour contourner et trouver un angle de tir
+        this.isMoving = true;
+        const strafeAngle = angle + (Math.sin(Date.now() * 0.003) > 0 ? Math.PI / 2 : -Math.PI / 2);
+        const mx = Math.cos(strafeAngle) * (this.speed * 0.7) * 60 * dt;
+        const my = Math.sin(strafeAngle) * (this.speed * 0.7) * 60 * dt;
+        if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
+        if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       }
 
       // Tir d'une flèche (uniquement si visible par le joueur et à portée < 280)
       if (this.shootCooldown <= 0 && isVisibleToPlayer && dist < 280) {
         this.shootCooldown = 1.8;
+        this.windUpTimer = 0.2;
         soundEngine.playHit();
         projectiles.push(new Projectile({
           x: this.x,
@@ -906,16 +1058,35 @@ class Enemy {
         }));
       }
     } else if (this.type === 'mage') {
-      // Déplacement d'approche et recul tactique
-      if (dist < 160) {
-        // Recule
+      // Sorcier tactique : érige des barrières et se téléporte si acculé
+      if (this.hp < this.maxHp * 0.6 && this.barrierHp <= 0 && Math.random() < 0.05) {
+        this.barrierHp = 35;
+        damageNumbers.push(new DamageNumber(this.x, this.y - 20, 'BARRIÈRE D\'OMBRE !', '#c084fc', true));
+      }
+
+      // Téléportation d'échappatoire si le joueur est trop proche
+      if (dist < 85 && this.blinkCooldown <= 0) {
+        this.blinkCooldown = 5.0;
+        const escapeAngle = angle + Math.PI + (Math.random() - 0.5);
+        const escapeDist = 110;
+        const tx = this.x + Math.cos(escapeAngle) * escapeDist;
+        const ty = this.y + Math.sin(escapeAngle) * escapeDist;
+        if (dungeon.isWalkable(tx, ty, this.radius)) {
+          this.x = tx;
+          this.y = ty;
+          soundEngine.playMagicCast();
+          damageNumbers.push(new DamageNumber(this.x, this.y - 20, 'TÉLÉPORTATION !', '#a855f7', true));
+        }
+      }
+
+      // Déplacement standard d'approche et recul tactique
+      if (dist < 150) {
         this.isMoving = true;
         const mx = -Math.cos(angle) * this.speed * 60 * dt;
         const my = -Math.sin(angle) * this.speed * 60 * dt;
         if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       } else if (dist > 260 && dist < 420) {
-        // S'approche
         this.isMoving = true;
         const mx = Math.cos(angle) * this.speed * 60 * dt;
         const my = Math.sin(angle) * this.speed * 60 * dt;
@@ -923,7 +1094,7 @@ class Enemy {
         if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
       }
 
-      // Tire des crânes d'ombre téléguidés (uniquement si visible par le joueur et à portée < 280)
+      // Tire des crânes d'ombre téléguidés
       if (this.shootCooldown <= 0 && isVisibleToPlayer && dist < 280) {
         this.shootCooldown = 2.4;
         soundEngine.playMagicCast();
@@ -940,7 +1111,49 @@ class Enemy {
         }));
       }
     } else if (this.type === 'tank') {
-      // Avance inexorablement et frappe lourdement
+      // Tank tactique : posture de garde et charge dévastatrice
+      this.isGuarding = (dist < 100);
+
+      // Gestion de la charge du Tank
+      if (this.chargeState === 'windup') {
+        if (this.windUpTimer <= 0) {
+          this.chargeState = 'charging';
+          this.chargeTimer = 0.45;
+          this.chargeVx = Math.cos(angle) * (this.speed * 3.2);
+          this.chargeVy = Math.sin(angle) * (this.speed * 3.2);
+          soundEngine.playHit();
+        }
+        return;
+      } else if (this.chargeState === 'charging') {
+        this.chargeTimer -= dt;
+        const mx = this.chargeVx * 60 * dt;
+        const my = this.chargeVy * 60 * dt;
+        if (dungeon.isWalkable(this.x + mx, this.y, this.radius)) this.x += mx;
+        if (dungeon.isWalkable(this.x, this.y + my, this.radius)) this.y += my;
+
+        if (dist < this.radius + player.radius) {
+          player.takeDamage(Math.round(this.damage * 1.4), soundEngine, damageNumbers, 'Charge Cuirassée');
+          this.chargeState = 'cooldown';
+          this.chargeTimer = 1.0;
+        } else if (this.chargeTimer <= 0) {
+          this.chargeState = 'cooldown';
+          this.chargeTimer = 1.0;
+        }
+        return;
+      } else if (this.chargeState === 'cooldown') {
+        this.chargeTimer -= dt;
+        if (this.chargeTimer <= 0) this.chargeState = 'idle';
+      }
+
+      // Déclenchement de la charge à moyenne distance
+      if (dist >= 120 && dist <= 260 && this.chargeState === 'idle' && Math.random() < 0.02) {
+        this.chargeState = 'windup';
+        this.windUpTimer = 0.55;
+        damageNumbers.push(new DamageNumber(this.x, this.y - 25, 'CHARGE IMMINENTE !', '#ef4444', true));
+        return;
+      }
+
+      // Avance inexorablement
       if (dist < 420) {
         this.isMoving = true;
         const mx = Math.cos(angle) * this.speed * 60 * dt;
@@ -1015,11 +1228,33 @@ class Enemy {
     }
   }
 
-  takeDamage(amount, soundEngine, damageNumbers, isCrit = false) {
+  takeDamage(amount, soundEngine, damageNumbers, isCrit = false, fromFront = false) {
     if (this.hp <= 0) return 0;
+
+    // Absorption par la barrière arcanique du mage
+    if (this.barrierHp > 0) {
+      if (this.barrierHp >= amount) {
+        this.barrierHp -= amount;
+        damageNumbers.push(new DamageNumber(this.x, this.y - 18, `-${amount} (BARRIÈRE)`, '#c084fc'));
+        soundEngine.playHit();
+        this.squashTimer = 0.12;
+        return 0;
+      } else {
+        amount -= this.barrierHp;
+        this.barrierHp = 0;
+      }
+    }
+
+    // Réduction de 70% si le Tank est en posture de garde de face
+    if (this.isGuarding && fromFront) {
+      amount = Math.max(1, Math.round(amount * 0.3));
+      damageNumbers.push(new DamageNumber(this.x, this.y - 20, 'PARÉ (-70%) !', '#94a3b8', true));
+    }
+
     const mitigated = Math.max(1, Math.round(amount * (1 - (this.armor || 0))));
     this.hp -= mitigated;
     this.hitCooldown = 0.15;
+    this.squashTimer = 0.15;
     soundEngine.playHit();
 
     damageNumbers.push(new DamageNumber(this.x, this.y - 12, `${mitigated}`, isCrit ? '#f59e0b' : '#f8fafc', isCrit));
@@ -1058,6 +1293,14 @@ class Enemy {
     }
     ctx.rotate(tilt);
 
+    // Squash & Stretch d'impact et Wind-Up de préparation
+    if (this.squashTimer > 0) {
+      ctx.scale(1.22, 0.82);
+    }
+    if (this.windUpTimer > 0) {
+      ctx.scale(0.88, 1.15);
+    }
+
     const sprite = spriteSheet[this.spriteName];
     const size = this.isBoss ? 56 : 32;
 
@@ -1068,6 +1311,72 @@ class Enemy {
       ctx.beginPath();
       ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // INDICATEURS D'ÉTATS MASSIFS V4
+    // 1. Glaçons massifs orbitant autour de l'ennemi gelé
+    if (this.freezeTimer > 0) {
+      ctx.save();
+      for (let i = 0; i < 4; i++) {
+        const orbitAngle = (Date.now() * 0.005) + (i * Math.PI * 0.5);
+        const ox = Math.cos(orbitAngle) * (this.radius + 6);
+        const oy = Math.sin(orbitAngle) * (this.radius + 6);
+        ctx.fillStyle = '#67e8f9';
+        ctx.beginPath();
+        ctx.moveTo(ox, oy - 4);
+        ctx.lineTo(ox + 3, oy);
+        ctx.lineTo(ox, oy + 4);
+        ctx.lineTo(ox - 3, oy);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // 2. Étoiles étourdissantes
+    if (this.freezeTimer > 0 && this.freezeType === 'stun') {
+      ctx.save();
+      const starTime = Date.now() * 0.008;
+      for (let i = 0; i < 3; i++) {
+        const sa = starTime + (i * Math.PI * 2 / 3);
+        const sx = Math.cos(sa) * 12;
+        const sy = -this.radius - 8 + Math.sin(sa) * 3;
+        ctx.fillStyle = '#ffd166';
+        ctx.fillRect(sx - 2, sy - 2, 4, 4);
+      }
+      ctx.restore();
+    }
+
+    // 3. Flammes vives si brûlure
+    if (this.burnTimer > 0) {
+      ctx.save();
+      ctx.fillStyle = '#ff5400';
+      ctx.fillRect(-6 + Math.random() * 12, -this.radius - Math.random() * 8, 4, 6);
+      ctx.restore();
+    }
+
+    // 4. Barrière arcanique du mage
+    if (this.barrierHp > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 2.5;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#c084fc';
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 5. Posture de garde du Tank
+    if (this.isGuarding) {
+      ctx.save();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(10, 0, 16, -Math.PI * 0.4, Math.PI * 0.4);
+      ctx.stroke();
+      ctx.restore();
     }
 
     ctx.restore();

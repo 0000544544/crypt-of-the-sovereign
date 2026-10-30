@@ -876,3 +876,103 @@ body {
   font-size: 11px;
   color: #cbd5e1;
 }
+
+/* ========================================================
+   V4 ACTION-RPG : GOTHIC UI, TENSION GAUGE & SOCKET SYSTEM
+   ======================================================== */
+
+/* Jauge d'Angoisse & Tension */
+.hud-tension-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: rgba(14, 11, 23, 0.88);
+  border: 1px solid #4a386b;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.8), inset 0 0 6px rgba(147, 51, 234, 0.2);
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin-top: 4px;
+  width: 170px;
+}
+
+.tension-label-wrap {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.tension-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #cbd5e1;
+  text-transform: uppercase;
+}
+
+.tension-track {
+  width: 100%;
+  height: 6px;
+  background: #0b0914;
+  border: 1px solid #281d3d;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tension-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #1d4ed8, #38bdf8);
+  transition: width 0.2s ease-out, background 0.3s ease;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+}
+
+/* Châsses & Indicateurs de Gemmes/Runes */
+.socket-indicators-wrap {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  display: flex;
+  gap: 3px;
+  background: rgba(8, 6, 15, 0.85);
+  padding: 2px 3px;
+  border-radius: 3px;
+  border: 1px solid #332b4a;
+}
+
+.socket-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1e1b2e;
+  border: 1px solid #475569;
+  display: inline-block;
+  box-sizing: border-box;
+}
+
+.socket-dot.filled {
+  border-color: #f8fafc;
+  box-shadow: 0 0 5px currentColor;
+}
+
+/* Améliorations Gothiques pour les Modales */
+.modal-card {
+  border: 2px solid #5b487c !important;
+  box-shadow: 0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px rgba(114, 9, 183, 0.35) !important;
+  background: linear-gradient(180deg, #161224 0%, #0d0a17 100%) !important;
+}
+
+.modal-header h3 {
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
+}
+
+.inv-slot {
+  position: relative;
+  transition: transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.inv-slot:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.15);
+}

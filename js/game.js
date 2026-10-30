@@ -36,6 +36,14 @@ class Game {
     this.currentRoom = null;
     this.invFullCooldown = 0;
 
+    // V4 Action-RPG : Tension, Freeze-Frame & Gouffres
+    this.hitFreezeTimer = 0;
+    this.tension = 0;
+    this.tensionMultiplier = 1.0;
+    this.lastChasmDamageTimer = 0;
+    this.lastSafePos = { x: 0, y: 0 };
+    this.selectedBagIndex = -1;
+
     // Caméra
     this.camera = { x: 0, y: 0 };
     this.screenShake = 0;
@@ -75,6 +83,8 @@ class Game {
       hudSouls: document.getElementById('hudSouls'),
       hudPotionHp: document.getElementById('hudPotionHp'),
       hudPotionMana: document.getElementById('hudPotionMana'),
+      tensionBarFill: document.getElementById('tensionBarFill'),
+      tensionText: document.getElementById('tensionText'),
       interactionPrompt: document.getElementById('interactionPrompt'),
       minimapCanvas: document.getElementById('minimapCanvas')
     };
@@ -113,9 +123,13 @@ class Game {
       'enemy_swarmer.png', 'enemy_archer.png', 'enemy_mage.png', 'enemy_tank.png', 'enemy_boss.png',
       'tile_floor.png', 'tile_floor_cracked.png', 'tile_floor_moss.png', 'tile_wall.png', 'tile_door_closed.png', 'tile_door_open.png', 'tile_stairs.png',
       'tile_torch.png', 'tile_chest_closed.png', 'tile_chest_open.png', 'tile_spikes.png', 'tile_shopkeeper.png',
+      'tile_barrel.png', 'tile_urn.png', 'tile_chasm.png', 'tile_bridge.png', 'tile_altar.png',
+      'tile_decor_bones.png', 'tile_decor_chains.png', 'tile_decor_puddle.png',
       'item_sword.png', 'item_staff.png', 'item_dagger.png', 'item_armor_heavy.png', 'item_armor_robe.png',
       'item_armor_leather.png', 'item_ring.png', 'item_potion_health.png', 'item_potion_mana.png',
-      'item_coin.png', 'item_soul_gem.png', 'icon.png'
+      'item_coin.png', 'item_soul_gem.png', 'icon.png',
+      'item_rune_fire.png', 'item_rune_lifesteal.png', 'item_rune_haste.png', 'item_rune_frost.png',
+      'item_gem_ruby.png', 'item_gem_sapphire.png', 'item_gem_emerald.png'
     ];
 
     const promises = spriteList.map(name => {
@@ -352,6 +366,9 @@ class Game {
     this.currentFloorNumber = floorNumber;
     this.runStats.floor = floorNumber;
     this.roomKills = 0;
+    this.tension = 0;
+    this.tensionMultiplier = 1.0;
+    this.lastChasmDamageTimer = 0;
     if (this.player) {
       this.player.aegisUsedThisFloor = false;
     }
@@ -360,6 +377,7 @@ class Game {
     // Positionner le joueur dans la salle de départ
     this.player.x = this.dungeon.startRoom.cx * TILE_SIZE + TILE_SIZE / 2;
     this.player.y = this.dungeon.startRoom.cy * TILE_SIZE + TILE_SIZE / 2;
+    this.lastSafePos = { x: this.player.x, y: this.player.y };
 
     this.enemies = [];
     this.projectiles = [];
@@ -429,6 +447,34 @@ class Game {
     this.showScreen('PLAYING');
   }
 
+  destroyDestructible(dest) {
+    if (!dest || dest.destroyed) return;
+    dest.destroyed = true;
+    dest.hp = 0;
+    this.hitFreezeTimer = 0.05;
+    this.sound.playHit();
+    this.particles.addDebrisBurst(dest.x, dest.y, dest.type === 'barrel' ? '#854d0e' : '#b45309');
+
+    if (dest.content === 'gold') {
+      const val = Math.round((12 + Math.random() * 14) * this.tensionMultiplier);
+      this.drops.push(new DropItem(dest.x, dest.y, { type: 'gold', value: val }));
+    } else if (dest.content === 'soul' || dest.content === 'souls') {
+      const val = Math.round((8 + Math.random() * 8) * this.tensionMultiplier);
+      this.drops.push(new DropItem(dest.x, dest.y, { type: 'soul', value: val }));
+    } else if (dest.content === 'rune') {
+      this.drops.push(new DropItem(dest.x, dest.y, { type: 'item', item: ItemGenerator.createRuneOrGem(this.currentFloorNumber) }));
+      this.damageNumbers.push(new DamageNumber(dest.x, dest.y - 15, 'Rune Découverte !', '#38bdf8', true));
+    } else if (dest.content === 'item') {
+      this.drops.push(new DropItem(dest.x, dest.y, { type: 'item', item: ItemGenerator.createItem(this.currentFloorNumber) }));
+    } else if (dest.content === 'gas' || dest.content === 'trap_gas') {
+      this.particles.addAcidCloud(dest.x, dest.y, 2.5);
+      this.damageNumbers.push(new DamageNumber(dest.x, dest.y - 15, 'PIÈGE DE GAZ !', '#22c55e', true));
+      if (Math.hypot(this.player.x - dest.x, this.player.y - dest.y) < 45) {
+        this.player.takeDamage(15, this.sound, this.damageNumbers, 'Nuage de Gaz');
+      }
+    }
+  }
+
   // --- BOUCLE PRINCIPALE 60 FPS ---
   loop(timestamp) {
     const dt = Math.min(0.1, (timestamp - this.lastTime) / 1000);
@@ -442,6 +488,17 @@ class Game {
 
   update(dt) {
     if (this.invFullCooldown > 0) this.invFullCooldown -= dt;
+
+    // Freeze-Frame lors des impacts critiques ou destructions
+    if (this.hitFreezeTimer > 0) {
+      this.hitFreezeTimer -= dt;
+      this.input.clearJustPressed();
+      return;
+    }
+
+    // Escalade de la Tension / Jauge d'Angoisse (augmente le danger et multiplie le loot jusqu'à 2.5x)
+    this.tension = Math.min(100, this.tension + dt * 1.25);
+    this.tensionMultiplier = 1.0 + (this.tension / 100) * 1.5;
 
     // Raccourcis universels
     if (this.input.justPressed.pause) {
@@ -475,6 +532,24 @@ class Game {
     // 2. Mise à jour du Joueur
     this.player.update(dt, this.input, this.dungeon, this.sound, this.projectiles, this.damageNumbers);
 
+    // Vérification des Gouffres (Chasms) et Dégâts de chute
+    if (this.lastChasmDamageTimer > 0) this.lastChasmDamageTimer -= dt;
+    if (this.dungeon && !this.dungeon.isChasm(this.player.x, this.player.y) && this.dungeon.isWalkable(this.player.x, this.player.y, this.player.radius)) {
+      this.lastSafePos.x = this.player.x;
+      this.lastSafePos.y = this.player.y;
+    } else if (this.dungeon && this.dungeon.isChasm(this.player.x, this.player.y) && !this.player.isRolling && !this.dungeon.isBridge(this.player.x, this.player.y)) {
+      if (this.lastChasmDamageTimer <= 0) {
+        this.lastChasmDamageTimer = 0.8;
+        this.player.takeDamage(20, this.sound, this.damageNumbers, 'Chute dans le Gouffre');
+        this.screenShake = Math.max(this.screenShake, 10);
+        this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 25, 'CHUTE ! -20 PV', '#9333ea', true));
+        this.player.x = this.lastSafePos.x;
+        this.player.y = this.lastSafePos.y;
+        this.player.vx = 0;
+        this.player.vy = 0;
+      }
+    }
+
     // Vérification de la mort du joueur
     if (this.player.hp <= 0) {
       this.endRun(false, 'Vos blessures vous ont été fatales.');
@@ -494,6 +569,67 @@ class Game {
 
     // 4. Brouillard de guerre et visibilité
     this.dungeon.updateFog(this.player.x, this.player.y, 280);
+
+    // Événement Salle de Défi (Gauntlet)
+    if (this.dungeon.gauntlet && !this.dungeon.gauntlet.completed) {
+      const gnt = this.dungeon.gauntlet;
+      const distToGauntlet = Math.hypot(this.player.x - gnt.x, this.player.y - gnt.y);
+      if (!gnt.triggered && distToGauntlet < 140) {
+        gnt.triggered = true;
+        gnt.active = true;
+        gnt.wave = 1;
+        gnt.enemiesAlive = [];
+        this.sound.playBossRoar();
+        this.screenShake = Math.max(this.screenShake, 14);
+        this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 30, 'ÉPREUVE DU GAUNTLET : VAGUE 1/2 !', '#f59e0b', true));
+
+        const types = ['swarmer', 'archer', 'tank', 'swarmer'];
+        for (let i = 0; i < 4; i++) {
+          const angle = (i / 4) * Math.PI * 2;
+          const ex = gnt.x + Math.cos(angle) * 110;
+          const ey = gnt.y + Math.sin(angle) * 110;
+          const en = new Enemy(types[i], ex, ey, this.currentFloorNumber);
+          this.enemies.push(en);
+          gnt.enemiesAlive.push(en);
+          this.particles.addDeathBurst(ex, ey, '#f59e0b', 20);
+        }
+      } else if (gnt.active) {
+        gnt.enemiesAlive = gnt.enemiesAlive.filter(e => e.hp > 0);
+        if (gnt.enemiesAlive.length === 0) {
+          if (gnt.wave === 1) {
+            gnt.wave = 2;
+            this.sound.playBossRoar();
+            this.screenShake = Math.max(this.screenShake, 14);
+            this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 30, 'ÉPREUVE DU GAUNTLET : VAGUE FINALE !', '#ef4444', true));
+            const types = ['tank', 'mage', 'archer', 'swarmer'];
+            for (let i = 0; i < 4; i++) {
+              const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+              const ex = gnt.x + Math.cos(angle) * 110;
+              const ey = gnt.y + Math.sin(angle) * 110;
+              const en = new Enemy(types[i], ex, ey, this.currentFloorNumber + 1);
+              this.enemies.push(en);
+              gnt.enemiesAlive.push(en);
+              this.particles.addDeathBurst(ex, ey, '#ef4444', 25);
+            }
+          } else {
+            gnt.active = false;
+            gnt.completed = true;
+            this.sound.playVictory();
+            this.damageNumbers.push(new DamageNumber(gnt.x, gnt.y - 35, 'GAUNTLET PURIFIÉ ! COFFRE D\'OR APPARU !', '#fbbf24', true));
+            const grandLoot = ItemGenerator.createItem(this.currentFloorNumber, 'legendary');
+            this.dungeon.chests.push({
+              x: gnt.x,
+              y: gnt.y,
+              opened: false,
+              loot: grandLoot
+            });
+            this.drops.push(new DropItem(gnt.x - 20, gnt.y, { type: 'item', item: ItemGenerator.createRuneOrGem(this.currentFloorNumber) }));
+            this.drops.push(new DropItem(gnt.x + 20, gnt.y, { type: 'gold', value: 120 }));
+            this.particles.addDeathBurst(gnt.x, gnt.y, '#fbbf24', 50);
+          }
+        }
+      }
+    }
 
     // Vérification du changement de salle pour réinitialiser Tempête d'Âmes
     const pTileX = Math.floor(this.player.x / TILE_SIZE);
@@ -531,6 +667,28 @@ class Game {
         finalDamage = Math.round(finalDamage * soulStormBonus);
       }
 
+      // Destructibles touchés par l'attaque de mêlée
+      if (this.dungeon && this.dungeon.destructibles) {
+        for (const dest of this.dungeon.destructibles) {
+          if (!dest.destroyed) {
+            const dist = Math.hypot(dest.x - this.player.x, dest.y - this.player.y);
+            if (dist <= hb.range + dest.radius) {
+              const angleToDest = Math.atan2(dest.y - this.player.y, dest.x - this.player.x);
+              let diff = angleToDest - hb.angle;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              while (diff > Math.PI) diff -= Math.PI * 2;
+              if (Math.abs(diff) <= hb.arc / 2) {
+                dest.hp -= finalDamage;
+                this.particles.addHitSpark(dest.x, dest.y, '#f59e0b', 6);
+                if (dest.hp <= 0) {
+                  this.destroyDestructible(dest);
+                }
+              }
+            }
+          }
+        }
+      }
+
       for (const e of this.enemies) {
         if (!hb.hitSet.has(e)) {
           const dist = Math.hypot(e.x - this.player.x, e.y - this.player.y);
@@ -548,13 +706,29 @@ class Game {
               }
               this.runStats.damageDealt += totalDealt;
 
-              // Juice visuel & particules d'impact
+              // Juice visuel & impacts V4 (Freeze-frame, taches de sang persistantes, squash)
+              this.hitFreezeTimer = 0.05;
+              this.particles.addBloodSplat(e.x, e.y);
+              e.squashTimer = 0.2;
+
               if (hb.isCrit) {
-                this.screenShake = Math.max(this.screenShake, 6);
+                this.screenShake = Math.max(this.screenShake, 7);
               }
               this.particles.addHitSpark(e.x, e.y, hb.isCrit ? '#f59e0b' : '#ef4444', hb.isCrit ? 12 : 7);
 
-              // Passif Vampirisme (8% de soins)
+              // Effets de Runes et Gemmes serties
+              if (this.player.fireBurn) {
+                e.burnTimer = 3.0;
+                e.burnDps = this.player.fireBurn;
+              }
+              if (this.player.frostChance && Math.random() < this.player.frostChance) {
+                e.freezeTimer = Math.max(e.freezeTimer, 2.0);
+              }
+              if (this.player.lifesteal) {
+                this.player.heal(Math.max(1, Math.round(totalDealt * this.player.lifesteal)));
+              }
+
+              // Passif Vampirisme (8% de soins de classe)
               if (this.player.passives && this.player.passives.some(p => p.includes('Vampirisme'))) {
                 this.player.heal(Math.max(1, Math.round(totalDealt * 0.08)));
               }
@@ -644,6 +818,28 @@ class Game {
       }
 
       if (p.isPlayer) {
+        // Collision projectile joueur vs destructibles
+        if (this.dungeon && this.dungeon.destructibles) {
+          for (const dest of this.dungeon.destructibles) {
+            if (!dest.destroyed) {
+              const dist = Math.hypot(dest.x - p.x, dest.y - p.y);
+              if (dist < dest.radius + p.radius) {
+                dest.hp -= p.damage;
+                this.particles.addHitSpark(dest.x, dest.y, '#f59e0b', 6);
+                if (dest.hp <= 0) {
+                  this.destroyDestructible(dest);
+                }
+                p.pierce--;
+                if (p.pierce <= 0) {
+                  this.projectiles.splice(i, 1);
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if (p.pierce <= 0) continue;
+
         // Collision projectile joueur vs ennemis
         for (const e of this.enemies) {
           if (!p.hitList.has(e)) {
@@ -656,7 +852,24 @@ class Game {
               }
               const dealt = e.takeDamage(pDamage, this.sound, this.damageNumbers);
               this.runStats.damageDealt += dealt;
+
+              // Juice & impacts V4
+              this.hitFreezeTimer = 0.05;
+              this.particles.addBloodSplat(e.x, e.y);
+              e.squashTimer = 0.2;
               this.particles.addHitSpark(e.x, e.y, p.color, 8);
+
+              // Effets de Runes & Gemmes
+              if (this.player.fireBurn) {
+                e.burnTimer = 3.0;
+                e.burnDps = this.player.fireBurn;
+              }
+              if (this.player.frostChance && Math.random() < this.player.frostChance) {
+                e.freezeTimer = Math.max(e.freezeTimer, 2.0);
+              }
+              if (this.player.lifesteal) {
+                this.player.heal(Math.max(1, Math.round(dealt * this.player.lifesteal)));
+              }
 
               // Passif Vampirisme
               if (this.player.passives && this.player.passives.some(pass => pass.includes('Vampirisme'))) {
@@ -710,23 +923,28 @@ class Game {
         this.runStats.kills++;
         this.roomKills = (this.roomKills || 0) + 1;
         const soulRate = 1 + (this.player.soulBonus || 0);
-        const soulsGained = Math.round(e.xpSouls * soulRate);
+        const goldGained = Math.round(e.gold * this.tensionMultiplier);
+        const soulsGained = Math.round(e.xpSouls * soulRate * this.tensionMultiplier);
 
         // Explosion de 40 particules à la mort d'un monstre
         this.particles.addDeathBurst(e.x, e.y, e.isBoss ? '#7209b7' : '#ef4444', 40);
 
-        // Génération de butin au sol (l'or et les âmes sont crédités au ramassage)
-        this.drops.push(new DropItem(e.x, e.y, { type: 'gold', value: e.gold }));
+        // Génération de butin au sol (avec multiplicateur de Tension)
+        this.drops.push(new DropItem(e.x, e.y, { type: 'gold', value: goldGained }));
         this.drops.push(new DropItem(e.x + 6, e.y, { type: 'soul', value: soulsGained }));
 
         if (e.isBoss) {
           this.runStats.bosses++;
-          // Le Boss lâche un objet Légendaire garanti et déverrouille l'escalier !
+          // Le Boss lâche un objet Légendaire garanti + une Rune Rare/Épique et déverrouille l'escalier !
           this.drops.push(new DropItem(e.x - 10, e.y, { type: 'item', item: ItemGenerator.createItem(this.currentFloorNumber, 'legendary') }));
+          this.drops.push(new DropItem(e.x + 12, e.y, { type: 'item', item: ItemGenerator.createRuneOrGem(this.currentFloorNumber) }));
           if (this.dungeon.stairs) {
             this.dungeon.stairs.locked = false;
           }
           this.damageNumbers.push(new DamageNumber(e.x, e.y - 30, 'ESCALIER DÉVERROUILLÉ !', '#fbbf24', true));
+        } else if (Math.random() < 0.16) {
+          // Butin de Rune ou Gemme
+          this.drops.push(new DropItem(e.x + 10, e.y, { type: 'item', item: ItemGenerator.createRuneOrGem(this.currentFloorNumber) }));
         } else if (Math.random() < 0.22) {
           this.drops.push(new DropItem(e.x - 8, e.y, { type: 'item', item: ItemGenerator.createItem(this.currentFloorNumber) }));
         }
@@ -845,6 +1063,33 @@ class Game {
       }
     }
 
+    // Autels Sacrificiels de Sang
+    if (this.dungeon.altars) {
+      for (const altar of this.dungeon.altars) {
+        if (!altar.used) {
+          const dist = Math.hypot(this.player.x - altar.x, this.player.y - altar.y);
+          if (dist < 40) {
+            promptText = '[E] Autel de Sang (Sacrifie 20 PV Max : +15 Dégâts & Butin Épique)';
+            if (this.input.justPressed.interact) {
+              if (this.player.maxHp > 25) {
+                altar.used = true;
+                this.player.maxHp -= 20;
+                this.player.hp = Math.min(this.player.hp, this.player.maxHp);
+                this.player.bonusDamage = (this.player.bonusDamage || 0) + 15;
+                this.sound.playLevelUp();
+                this.screenShake = Math.max(this.screenShake, 12);
+                this.particles.addDeathBurst(altar.x, altar.y, '#dc2626', 45);
+                this.damageNumbers.push(new DamageNumber(altar.x, altar.y - 25, 'PACT DE SANG : DÉGÂTS +15 !', '#ef4444', true));
+                this.drops.push(new DropItem(altar.x, altar.y + 12, { type: 'item', item: ItemGenerator.createItem(this.currentFloorNumber, 'epic') }));
+              } else {
+                this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 20, 'Vitalité trop faible !', '#ef4444', true));
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Escaliers vers l'étage suivant ou Victoire
     if (this.dungeon.stairs) {
       const st = this.dungeon.stairs;
@@ -908,6 +1153,21 @@ class Game {
     if (this.dom.hudSouls) this.dom.hudSouls.textContent = this.inventory.souls;
     if (this.dom.hudPotionHp) this.dom.hudPotionHp.textContent = `x${this.inventory.potions.health}`;
     if (this.dom.hudPotionMana) this.dom.hudPotionMana.textContent = `x${this.inventory.potions.mana}`;
+
+    // Jauge de Tension / Angoisse
+    if (this.dom.tensionBarFill) {
+      this.dom.tensionBarFill.style.width = `${this.tension}%`;
+      if (this.tension < 40) {
+        this.dom.tensionBarFill.style.background = 'linear-gradient(90deg, #1d4ed8, #38bdf8)';
+      } else if (this.tension < 75) {
+        this.dom.tensionBarFill.style.background = 'linear-gradient(90deg, #d97706, #fbbf24)';
+      } else {
+        this.dom.tensionBarFill.style.background = 'linear-gradient(90deg, #dc2626, #ef4444)';
+      }
+    }
+    if (this.dom.tensionText) {
+      this.dom.tensionText.textContent = `Tension : ${Math.round(this.tension)}% (Butin x${this.tensionMultiplier.toFixed(1)})`;
+    }
 
     // Rendu de la Minimap
     this.renderMinimap();
@@ -983,12 +1243,14 @@ class Game {
         }
         else if (tileType === TILE.WALL) sprite = this.sprites['tile_wall.png'];
         else if (tileType === TILE.STAIRS) sprite = this.sprites['tile_stairs.png'];
+        else if (tileType === TILE.CHASM) sprite = this.sprites['tile_chasm.png'];
+        else if (tileType === TILE.BRIDGE) sprite = this.sprites['tile_bridge.png'];
 
         if (sprite && sprite.complete && sprite.naturalWidth > 0) {
           this.ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
         } else {
           // Fallback
-          this.ctx.fillStyle = tileType === TILE.WALL ? '#1e293b' : '#334155';
+          this.ctx.fillStyle = tileType === TILE.WALL ? '#1e293b' : (tileType === TILE.CHASM ? '#050308' : '#334155');
           this.ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
         }
 
@@ -1000,7 +1262,66 @@ class Game {
       }
     }
 
-    // 2. Pièges, Coffres, Flambeaux et Marchand (uniquement si tuile découverte)
+    // 1b. Taches de sang persistantes au sol (gore pixel art sous les entités)
+    this.particles.drawSplats(this.ctx);
+
+    // 1c. Variété et Encombrement au sol (Bones, Chains, Puddles)
+    if (this.dungeon.decors) {
+      for (const dec of this.dungeon.decors) {
+        const tx = Math.floor(dec.x / TILE_SIZE);
+        const ty = Math.floor(dec.y / TILE_SIZE);
+        if (this.dungeon.discovered[ty]?.[tx] === 1) {
+          const sprName = `tile_decor_${dec.type}.png`;
+          const sprite = this.sprites[sprName] || this.sprites['tile_decor_bones.png'];
+          if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            this.ctx.drawImage(sprite, dec.x - 16, dec.y - 16, 32, 32);
+          }
+        }
+      }
+    }
+
+    // 2. Pièges, Coffres, Flambeaux, Marchand, Destructibles et Autels (uniquement si tuile découverte)
+    // Destructibles (Tonneaux et Urnes)
+    if (this.dungeon.destructibles) {
+      for (const dest of this.dungeon.destructibles) {
+        if (!dest.destroyed) {
+          const tx = Math.floor(dest.x / TILE_SIZE);
+          const ty = Math.floor(dest.y / TILE_SIZE);
+          if (this.dungeon.discovered[ty]?.[tx] === 1) {
+            const sprName = `tile_${dest.type}.png`;
+            const sprite = this.sprites[sprName] || this.sprites['tile_barrel.png'];
+            if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+              this.ctx.drawImage(sprite, dest.x - 16, dest.y - 16, 32, 32);
+            }
+          }
+        }
+      }
+    }
+
+    // Autels Sacrificiels
+    if (this.dungeon.altars) {
+      for (const altar of this.dungeon.altars) {
+        const tx = Math.floor(altar.x / TILE_SIZE);
+        const ty = Math.floor(altar.y / TILE_SIZE);
+        if (this.dungeon.discovered[ty]?.[tx] === 1) {
+          const sprite = this.sprites['tile_altar.png'];
+          if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            this.ctx.drawImage(sprite, altar.x - 16, altar.y - 16, 32, 32);
+          }
+          if (!altar.used && this.dungeon.visible[ty]?.[tx] === 1) {
+            const pulse = 0.8 + Math.sin(Date.now() * 0.006) * 0.2;
+            const grad = this.ctx.createRadialGradient(altar.x, altar.y, 4, altar.x, altar.y, 36 * pulse);
+            grad.addColorStop(0, 'rgba(239, 68, 68, 0.45)');
+            grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+            this.ctx.fillStyle = grad;
+            this.ctx.beginPath();
+            this.ctx.arc(altar.x, altar.y, 36 * pulse, 0, Math.PI * 2);
+            this.ctx.fill();
+          }
+        }
+      }
+    }
+
     for (const torch of this.dungeon.torches) {
       const ttx = Math.floor(torch.x / TILE_SIZE);
       const tty = Math.floor(torch.y / TILE_SIZE);
@@ -1011,12 +1332,13 @@ class Game {
         }
         if (this.dungeon.visible[tty]?.[ttx] === 1) {
           const pulse = 0.85 + Math.sin(Date.now() * 0.008 + torch.id) * 0.15;
-          const grad = this.ctx.createRadialGradient(torch.x + 16, torch.y + 16, 4, torch.x + 16, torch.y + 16, 54 * pulse);
-          grad.addColorStop(0, 'rgba(255, 183, 3, 0.28)');
-          grad.addColorStop(1, 'rgba(255, 183, 3, 0)');
+          const grad = this.ctx.createRadialGradient(torch.x + 16, torch.y + 16, 4, torch.x + 16, torch.y + 16, 68 * pulse);
+          grad.addColorStop(0, 'rgba(255, 200, 80, 0.35)');
+          grad.addColorStop(0.4, 'rgba(245, 158, 11, 0.18)');
+          grad.addColorStop(1, 'rgba(180, 83, 9, 0)');
           this.ctx.fillStyle = grad;
           this.ctx.beginPath();
-          this.ctx.arc(torch.x + 16, torch.y + 16, 54 * pulse, 0, Math.PI * 2);
+          this.ctx.arc(torch.x + 16, torch.y + 16, 68 * pulse, 0, Math.PI * 2);
           this.ctx.fill();
         }
       }
@@ -1129,6 +1451,12 @@ class Game {
     darkVignette.addColorStop(1, 'rgba(2, 2, 6, 0.85)');
     this.ctx.fillStyle = darkVignette;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // 9. Scanlines rétro discrètes (effet CRT arcade)
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
+    for (let y = 0; y < this.canvas.height; y += 3) {
+      this.ctx.fillRect(0, y, this.canvas.width, 1);
+    }
   }
 
   // --- RENDU DES INTERFACES UI ---
@@ -1156,12 +1484,71 @@ class Game {
         img.src = item.sprite || 'assets/sprites/item_sword.png';
         slotDiv.appendChild(img);
 
-        slotDiv.title = `${item.name} (${rarity.name})\n${item.desc}`;
-        slotDiv.addEventListener('click', () => {
-          this.inventory.equip(i);
-          this.player.applyEquipmentStats(this.inventory.getNetEquipmentStats());
-          this.renderInventoryUI();
-        });
+        // Affichage des châsses / sockets sur l'icône de l'objet
+        if (item.maxSockets > 0) {
+          const socketWrap = document.createElement('div');
+          socketWrap.className = 'socket-indicators-wrap';
+          for (let s = 0; s < item.maxSockets; s++) {
+            const socketDot = document.createElement('span');
+            socketDot.className = 'socket-dot';
+            if (item.sockets && item.sockets[s]) {
+              socketDot.classList.add('filled');
+              socketDot.style.background = item.sockets[s].color || '#fbbf24';
+            }
+            socketWrap.appendChild(socketDot);
+          }
+          slotDiv.appendChild(socketWrap);
+        }
+
+        let tooltip = `${item.name} (${rarity.name})\n${item.desc}`;
+        if (item.maxSockets > 0) {
+          tooltip += `\nChâsses : ${item.sockets.length}/${item.maxSockets}`;
+          if (item.sockets.length > 0) {
+            tooltip += '\n' + item.sockets.map(s => ` • ${s.name}`).join('\n');
+          }
+        }
+
+        if (item.type === 'rune' || item.type === 'gem') {
+          slotDiv.title = `[RUNE/GEMME] ${tooltip}\nCliquez pour sertir dans votre Arme ou Armure équipée`;
+          slotDiv.addEventListener('click', () => {
+            // Tenter de sertir dans l'arme d'abord, puis dans l'armure
+            const weapon = this.inventory.equipped.weapon;
+            const armor = this.inventory.equipped.armor;
+            let targetEquip = null;
+
+            if (weapon && (weapon.sockets?.length || 0) < (weapon.maxSockets || 0)) {
+              targetEquip = weapon;
+            } else if (armor && (armor.sockets?.length || 0) < (armor.maxSockets || 0)) {
+              targetEquip = armor;
+            }
+
+            if (targetEquip) {
+              const runeItem = this.inventory.bag.splice(i, 1)[0];
+              const success = this.inventory.socketRune(targetEquip, runeItem);
+              if (success) {
+                this.sound.playLevelUp();
+                this.player.applyEquipmentStats(this.inventory.getNetEquipmentStats());
+                if (this.damageNumbers && this.player) {
+                  this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 20, `${runeItem.name} Sertie !`, runeItem.color || '#fbbf24', true));
+                }
+              } else {
+                this.inventory.bag.splice(i, 0, runeItem);
+              }
+            } else {
+              if (this.damageNumbers && this.player) {
+                this.damageNumbers.push(new DamageNumber(this.player.x, this.player.y - 20, 'Aucune châsse libre disponible !', '#ef4444', true));
+              }
+            }
+            this.renderInventoryUI();
+          });
+        } else {
+          slotDiv.title = `${tooltip}\nCliquez pour équiper`;
+          slotDiv.addEventListener('click', () => {
+            this.inventory.equip(i);
+            this.player.applyEquipmentStats(this.inventory.getNetEquipmentStats());
+            this.renderInventoryUI();
+          });
+        }
       }
       bagGrid.appendChild(slotDiv);
     }
@@ -1186,7 +1573,32 @@ class Game {
       img.src = item.sprite || `assets/sprites/${defaultIcon}`;
       container.appendChild(img);
 
-      container.title = `[ÉQUIPÉ] ${item.name}\n${item.desc}\nCliquez pour déséquiper`;
+      // Châsses de l'équipement
+      if (item.maxSockets > 0) {
+        const socketWrap = document.createElement('div');
+        socketWrap.className = 'socket-indicators-wrap';
+        for (let s = 0; s < item.maxSockets; s++) {
+          const socketDot = document.createElement('span');
+          socketDot.className = 'socket-dot';
+          if (item.sockets && item.sockets[s]) {
+            socketDot.classList.add('filled');
+            socketDot.style.background = item.sockets[s].color || '#fbbf24';
+          }
+          socketWrap.appendChild(socketDot);
+        }
+        container.appendChild(socketWrap);
+      }
+
+      let tooltip = `[ÉQUIPÉ] ${item.name} (${rarity.name})\n${item.desc}`;
+      if (item.maxSockets > 0) {
+        tooltip += `\nChâsses : ${item.sockets.length}/${item.maxSockets}`;
+        if (item.sockets.length > 0) {
+          tooltip += '\n' + item.sockets.map(s => ` • ${s.name}`).join('\n');
+        }
+      }
+      tooltip += '\nCliquez pour déséquiper';
+      container.title = tooltip;
+
       container.onclick = () => {
         this.inventory.unequip(slotType);
         this.player.applyEquipmentStats(this.inventory.getNetEquipmentStats());

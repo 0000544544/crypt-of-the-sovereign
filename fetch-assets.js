@@ -572,6 +572,275 @@ const generators = {
     return c.toPng();
   },
 
+  // --- NOUVEAUX ÉLÉMENTS DE DÉCOR, DESTRUCTIBLES & GOUFFRES V4 ---
+  'tile_barrel.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Corps en chêne foncé
+    c.rect(6, 4, 20, 24, '#5c3317');
+    c.rect(5, 8, 22, 16, '#78421a');
+    c.rect(7, 6, 18, 20, '#8f5223');
+    // Cerclages de fer forgé
+    c.rect(5, 7, 22, 3, '#334155');
+    c.rect(5, 22, 22, 3, '#334155');
+    c.rect(6, 14, 20, 2, '#1e293b');
+    // Lattes de bois et rivets
+    c.rect(11, 4, 1, 24, '#3d200f');
+    c.rect(16, 4, 1, 24, '#3d200f');
+    c.rect(21, 4, 1, 24, '#3d200f');
+    c.rect(6, 8, 1, 1, '#94a3b8');
+    c.rect(25, 8, 1, 1, '#94a3b8');
+    c.rect(6, 23, 1, 1, '#94a3b8');
+    c.rect(25, 23, 1, 1, '#94a3b8');
+    // Reflet bois
+    c.rect(8, 10, 3, 12, '#a7632e');
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_urn.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Vase / Urne funéraire en terre cuite antique
+    c.rect(10, 4, 12, 4, '#9c6644'); // Bord supérieur
+    c.rect(12, 8, 8, 4, '#7f4f24');  // Col resserré
+    c.rect(6, 12, 20, 14, '#b07d62'); // Panse large
+    c.rect(8, 14, 16, 10, '#c78d6c'); // Reflet terre cuite
+    c.rect(9, 26, 14, 4, '#7f4f24');  // Pied
+    // Motifs grecs / runes dorées
+    c.rect(8, 16, 16, 2, '#ffd166');
+    c.rect(10, 15, 2, 4, '#ffd166');
+    c.rect(15, 15, 2, 4, '#ffd166');
+    c.rect(20, 15, 2, 4, '#ffd166');
+    // Fissure d'âge
+    c.rect(13, 19, 1, 5, '#4a2810');
+    c.rect(14, 22, 2, 1, '#4a2810');
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_chasm.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Abîme abyssal sans fond avec brume sombre et lueur du vide
+    c.rect(0, 0, 32, 32, '#030206');
+    // Dégradé de falaise plongeante
+    c.rect(0, 0, 32, 4, '#120f1c');
+    c.rect(0, 4, 32, 4, '#0c0a14');
+    c.rect(0, 8, 32, 4, '#08060e');
+    // Éclats d'âmes tourbillonnant dans l'abîme
+    c.rect(8, 14, 2, 2, '#38165c');
+    c.rect(22, 18, 3, 3, '#2a0845');
+    c.rect(14, 24, 2, 2, '#18042b');
+    c.hex(23, 19, '#7209b7');
+    c.hex(9, 15, '#4cc9f0');
+    return c.toPng();
+  },
+
+  'tile_bridge.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Pont de pierre ancienne traversant le gouffre
+    c.rect(0, 0, 32, 32, '#181920');
+    // Dalles centrales solides
+    c.rect(2, 2, 28, 28, '#2d303a');
+    c.rect(4, 4, 24, 24, '#3b3f4d');
+    // Rainures de blocs
+    c.rect(2, 15, 28, 2, '#1a1b22');
+    c.rect(15, 2, 2, 14, '#1a1b22');
+    c.rect(15, 17, 2, 13, '#1a1b22');
+    // Bordures en relief (parapets)
+    c.rect(0, 0, 3, 32, '#4d5366');
+    c.rect(29, 0, 3, 32, '#4d5366');
+    c.rect(1, 1, 1, 30, '#69728c');
+    c.rect(30, 1, 1, 30, '#333744');
+    // Gravures runiques bleutées de stabilisation
+    c.hex(8, 8, '#38bdf8');
+    c.hex(22, 22, '#38bdf8');
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_altar.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Socle de marbre noir runique
+    c.rect(4, 18, 24, 12, '#181224');
+    c.rect(2, 26, 28, 6, '#0f0a17');
+    c.rect(6, 14, 20, 6, '#281a3d');
+    // Table de sacrifice
+    c.rect(4, 10, 24, 5, '#3c255c');
+    c.rect(6, 8, 20, 3, '#563882');
+    // Bol de sang rituel / flamme violette
+    c.rect(11, 4, 10, 5, '#d90429');
+    c.rect(12, 2, 8, 4, '#ef233c');
+    c.rect(14, 0, 4, 4, '#9d4edd');
+    c.rect(15, 1, 2, 2, '#ffffff');
+    // Yeux ou runes infernales sur la pierre
+    c.rect(8, 20, 3, 3, '#ff0055');
+    c.rect(21, 20, 3, 3, '#ff0055');
+    c.rect(14, 22, 4, 4, '#ffb703');
+    c.applyOutline('#06020a');
+    return c.toPng();
+  },
+
+  'tile_decor_bones.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Tas d'ossements et crânes au sol
+    c.rect(6, 12, 6, 6, '#d1d5db');
+    c.rect(7, 13, 2, 2, '#111827'); // Orbite crâne 1
+    c.rect(10, 13, 2, 2, '#111827');
+    c.rect(16, 16, 5, 5, '#9ca3af');
+    c.rect(17, 17, 1, 1, '#111827');
+    c.rect(19, 17, 1, 1, '#111827');
+    // Fémurs croisés
+    for (let i = 0; i < 14; i++) {
+      c.rect(8 + i, 8 + i, 2, 1, '#e5e7eb');
+      c.rect(22 - i, 8 + i, 2, 1, '#e5e7eb');
+    }
+    c.rect(7, 7, 3, 3, '#d1d5db');
+    c.rect(21, 7, 3, 3, '#d1d5db');
+    c.rect(7, 21, 3, 3, '#9ca3af');
+    c.rect(21, 21, 3, 3, '#9ca3af');
+    c.applyOutline('#0a0812');
+    return c.toPng();
+  },
+
+  'tile_decor_chains.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Chaînes en fer rouillé fixées au sol
+    c.rect(4, 4, 6, 6, '#475569'); // Anneau d'ancrage
+    c.rect(6, 6, 2, 2, '#0f172a');
+    for (let i = 0; i < 8; i++) {
+      const cx = 8 + i * 2;
+      const cy = 8 + Math.floor(i * 2.2);
+      c.rect(cx, cy, 4, 3, i % 2 === 0 ? '#64748b' : '#334155');
+      c.hex(cx + 1, cy + 1, '#94a3b8');
+    }
+    // Menotte ou boulet brisé
+    c.rect(20, 22, 8, 8, '#334155');
+    c.rect(22, 24, 4, 4, '#64748b');
+    c.applyOutline('#080b12');
+    return c.toPng();
+  },
+
+  'tile_decor_puddle.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Flaque d'eau sombre avec reflets
+    c.rect(4, 8, 24, 16, '#0f172a');
+    c.rect(6, 6, 20, 20, '#1e293b');
+    c.rect(8, 9, 16, 14, '#1e3a5f');
+    c.rect(10, 11, 12, 10, '#2563eb');
+    c.rect(12, 13, 8, 5, '#38bdf8');
+    c.rect(14, 14, 4, 2, '#ffffff'); // Reflet étincelant
+    c.applyOutline('#030712');
+    return c.toPng();
+  },
+
+  // --- RUNES & GEMMES V4 ---
+  'item_rune_fire.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Tablette runique taillée dans l'obsidienne
+    c.rect(6, 4, 20, 24, '#1f1315');
+    c.rect(7, 5, 18, 22, '#331a1d');
+    c.rect(8, 6, 16, 20, '#4d1e22');
+    // Symbole runique de Flamme ardente
+    c.rect(15, 8, 2, 16, '#ff0033');
+    c.rect(13, 12, 6, 3, '#ff5400');
+    c.rect(11, 16, 10, 3, '#ff9e00');
+    c.rect(14, 10, 4, 8, '#ffbd00');
+    c.rect(15, 12, 2, 4, '#ffffff'); // Cœur ardent
+    c.applyOutline('#0d0506');
+    return c.toPng();
+  },
+
+  'item_rune_lifesteal.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Tablette runique sanglante
+    c.rect(6, 4, 20, 24, '#1a050d');
+    c.rect(7, 5, 18, 22, '#2d0918');
+    c.rect(8, 6, 16, 20, '#470c26');
+    // Goutte de sang vampirique & rune
+    c.rect(15, 8, 2, 2, '#d90429');
+    c.rect(14, 10, 4, 3, '#ef233c');
+    c.rect(12, 13, 8, 6, '#d90429');
+    c.rect(13, 19, 6, 3, '#a00020');
+    c.rect(14, 13, 2, 2, '#ffffff'); // Reflet
+    c.applyOutline('#0d0207');
+    return c.toPng();
+  },
+
+  'item_rune_haste.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Tablette runique éolienne / tempête
+    c.rect(6, 4, 20, 24, '#0f172a');
+    c.rect(7, 5, 18, 22, '#1e293b');
+    c.rect(8, 6, 16, 20, '#334155');
+    // Éclair doré / plumes de vitesse
+    c.rect(17, 8, 3, 5, '#ffd166');
+    c.rect(14, 12, 6, 3, '#ffb703');
+    c.rect(12, 15, 6, 3, '#fb8500');
+    c.rect(15, 17, 3, 6, '#ffb703');
+    c.rect(16, 10, 1, 4, '#ffffff');
+    c.applyOutline('#060912');
+    return c.toPng();
+  },
+
+  'item_rune_frost.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Tablette runique de glace éternelle
+    c.rect(6, 4, 20, 24, '#081c24');
+    c.rect(7, 5, 18, 22, '#0f3342');
+    c.rect(8, 6, 16, 20, '#164e63');
+    // Flocon de givre céleste
+    c.rect(15, 8, 2, 16, '#67e8f9');
+    c.rect(8, 15, 16, 2, '#67e8f9');
+    c.rect(11, 11, 2, 2, '#a5f3fc');
+    c.rect(19, 11, 2, 2, '#a5f3fc');
+    c.rect(11, 19, 2, 2, '#a5f3fc');
+    c.rect(19, 19, 2, 2, '#a5f3fc');
+    c.rect(15, 15, 2, 2, '#ffffff');
+    c.applyOutline('#030b0e');
+    return c.toPng();
+  },
+
+  'item_gem_ruby.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Gemme Rubis taillée en poire
+    c.rect(13, 8, 6, 4, '#d90429');
+    c.rect(10, 12, 12, 8, '#ef233c');
+    c.rect(12, 20, 8, 4, '#d90429');
+    c.rect(14, 24, 4, 2, '#9d0208');
+    // Facettes étincelantes
+    c.rect(12, 11, 4, 4, '#ff758f');
+    c.rect(13, 12, 2, 2, '#ffffff');
+    c.applyOutline('#0d0205');
+    return c.toPng();
+  },
+
+  'item_gem_sapphire.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Gemme Saphir royale
+    c.rect(11, 8, 10, 4, '#1d4ed8');
+    c.rect(8, 12, 16, 8, '#2563eb');
+    c.rect(11, 20, 10, 4, '#1d4ed8');
+    c.rect(13, 24, 6, 2, '#1e3a8a');
+    // Facettes étincelantes
+    c.rect(11, 11, 4, 4, '#60a5fa');
+    c.rect(12, 12, 2, 2, '#ffffff');
+    c.applyOutline('#030b1e');
+    return c.toPng();
+  },
+
+  'item_gem_emerald.png': () => {
+    const c = new PixelCanvas(32, 32);
+    // Gemme Émeraude octogonale
+    c.rect(12, 8, 8, 4, '#047857');
+    c.rect(9, 12, 14, 8, '#059669');
+    c.rect(12, 20, 8, 4, '#047857');
+    c.rect(13, 24, 6, 2, '#064e3b');
+    // Facettes étincelantes
+    c.rect(11, 11, 4, 4, '#34d399');
+    c.rect(12, 12, 2, 2, '#ffffff');
+    c.applyOutline('#020f0a');
+    return c.toPng();
+  },
+
   // --- OBJETS EN 32x32 ---
   'item_sword.png': () => {
     const c = new PixelCanvas(32, 32);
